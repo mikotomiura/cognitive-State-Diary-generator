@@ -1,0 +1,646 @@
+"""Critic モジュール -- Phase 3 (Critic評価) を担当する。
+
+3層構造 (RuleBasedValidator / StatisticalChecker / LLMJudge) による
+評価パイプラインを実装する。各層は独立にスコアを算出し、
+重み付き加重平均で最終 CriticScore を生成する。
+
+architecture.md SS3.3 に準拠する。
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from csdg.schemas import (
+    CharacterState,
+    CriticResult,
+    CriticScore,
+    DailyEvent,
+    LayerScore,
+)
+
+if TYPE_CHECKING:
+    from csdg.config import CSDGConfig
+    from csdg.engine.llm_client import LLMClient
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_PROMPTS_DIR = Path("prompts")
+
+_SCORE_FIELDS = ("temporal_consistency", "emotional_plausibility", "persona_deviation")
+
+_CONTINUOUS_PARAMS = ("fatigue", "motivation", "stress")
+
+# RuleBasedValidator の定数
+_MIN_DIARY_LENGTH = 800
+_MAX_DIARY_LENGTH = 2000
+_MAX_TRIGRAM_OVERLAP = 0.30
+_EMOJI_PATTERN = re.compile(
+    r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
+    r"\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0000FE00-\U0000FE0F"
+    r"\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF"
+    r"\U00002600-\U000026FF]",
+)
+
+# StatisticalChecker の定数
+_MIN_AVG_SENTENCE_LENGTH = 10
+_MAX_AVG_SENTENCE_LENGTH = 80
+_MAX_DEVIATION_THRESHOLD = 0.5
+
+
+# ---------------------------------------------------------------------------
+# 定量検証関数 (LLM に依存しない純粋関数) -- 既存 API 維持
+# ---------------------------------------------------------------------------
+
+
+def compute_expected_delta(
+    event: DailyEvent,
+    sensitivity: dict[str, float],
+) -> dict[str, float]:
+    """イベントの emotional_impact から各パラメータの期待変動幅を算出する。
+
+    Args:
+        event: 当日のイベント定義。
+        sensitivity: 感情感度係数 (例: {"stress": -0.3, "motivation": 0.4, "fatigue": -0.2})。
+
+    Returns:
+        各パラメータの期待変動幅。
+        例: impact=0.6, sensitivity={"stress": -0.3} -> {"stress": -0.18}
+    """
+    return {param: event.emotional_impact * coeff for param, coeff in sensitivity.items()}
+
+
+def compute_deviation(
+    prev_state: CharacterState,
+    curr_state: CharacterState,
+    expected_delta: dict[str, float],
+) -> dict[str, float]:
+    """実際の変動と期待変動の乖離を算出する。
+
+    actual_delta = curr.param - prev.param
+    deviation = actual_delta - expected_delta
+
+    Args:
+        prev_state: 前日のキャラクター内部状態 (h_{t-1})。
+        curr_state: 今日のキャラクター内部状態 (h_t)。
+        expected_delta: compute_expected_delta() の出力。
+
+    Returns:
+        各パラメータの乖離値。
+    """
+    return {
+        param: (getattr(curr_state, param) - getattr(prev_state, param)) - expected_val
+        for param, expected_val in expected_delta.items()
+    }
+
+
+def judge(score: CriticScore) -> bool:
+    """全スコアが 3 以上で True (Pass)。1つでも 3 未満で False (Reject)。
+
+    Args:
+        score: Critic が出力した評価スコア。
+
+    Returns:
+        Pass なら True、Reject なら False。
+    """
+    return all(getattr(score, field) >= 3 for field in _SCORE_FIELDS)
+
+
+# ---------------------------------------------------------------------------
+# Layer 1: RuleBasedValidator (決定論的)
+# ---------------------------------------------------------------------------
+
+
+def _extract_trigrams(text: str) -> set[str]:
+    """テキストからトライグラムの集合を抽出する。"""
+    chars = text.replace(" ", "").replace("\n", "")
+    if len(chars) < 3:
+        return set()
+    return {chars[i : i + 3] for i in range(len(chars) - 2)}
+
+
+def _compute_trigram_overlap(text_a: str, text_b: str) -> float:
+    """2つのテキスト間のトライグラム重複率を算出する。"""
+    trigrams_a = _extract_trigrams(text_a)
+    trigrams_b = _extract_trigrams(text_b)
+    if not trigrams_a or not trigrams_b:
+        return 0.0
+    intersection = trigrams_a & trigrams_b
+    return len(intersection) / min(len(trigrams_a), len(trigrams_b))
+
+
+class RuleBasedValidator:
+    """Layer 1: 決定論的なルールベース検証。
+
+    文字数レンジチェック、禁止表現の検出、前日との重複率チェック、
+    感情パラメータの数値整合性を検証する。
+    """
+
+    def evaluate(
+        self,
+        diary_text: str,
+        prev_state: CharacterState,
+        curr_state: CharacterState,
+        event: DailyEvent,
+        expected_delta: dict[str, float],
+        prev_diary: str | None = None,
+    ) -> LayerScore:
+        """ルールベース検証を実行する。
+
+        Args:
+            diary_text: 評価対象の日記テキスト。
+            prev_state: 前日の状態。
+            curr_state: 今日の状態。
+            event: 当日のイベント。
+            expected_delta: 期待変動幅。
+            prev_diary: 前日の日記テキスト (重複チェック用)。
+
+        Returns:
+            LayerScore (各軸 1.0-5.0)。
+        """
+        penalties: dict[str, float] = {
+            "temporal_consistency": 0.0,
+            "emotional_plausibility": 0.0,
+            "persona_deviation": 0.0,
+        }
+        details: dict[str, object] = {}
+
+        # 文字数レンジチェック -> persona_deviation に影響
+        char_count = len(diary_text)
+        details["char_count"] = char_count
+        if char_count < _MIN_DIARY_LENGTH:
+            penalties["persona_deviation"] += 1.5
+            details["char_count_violation"] = "too_short"
+        elif char_count > _MAX_DIARY_LENGTH:
+            penalties["persona_deviation"] += 0.5
+            details["char_count_violation"] = "too_long"
+
+        # 禁止表現検出 (絵文字) -> persona_deviation
+        emoji_matches = _EMOJI_PATTERN.findall(diary_text)
+        if emoji_matches:
+            penalties["persona_deviation"] += 2.0
+            details["emoji_count"] = len(emoji_matches)
+
+        # 前日との重複率チェック -> temporal_consistency
+        if prev_diary:
+            overlap = _compute_trigram_overlap(diary_text, prev_diary)
+            details["trigram_overlap"] = round(overlap, 3)
+            if overlap > _MAX_TRIGRAM_OVERLAP:
+                penalties["temporal_consistency"] += 1.5
+                details["overlap_violation"] = True
+
+        # 感情パラメータの数値整合性 -> emotional_plausibility
+        for param in _CONTINUOUS_PARAMS:
+            actual_delta = getattr(curr_state, param) - getattr(prev_state, param)
+            expected = expected_delta.get(param, 0.0)
+            # event_impact の符号と actual_delta の方向が矛盾していないか
+            if (
+                abs(event.emotional_impact) > 0.5
+                and expected != 0.0
+                and actual_delta != 0.0
+                and ((expected > 0 and actual_delta < -0.3) or (expected < 0 and actual_delta > 0.3))
+            ):
+                penalties["emotional_plausibility"] += 1.0
+                details[f"{param}_direction_mismatch"] = True
+
+        return LayerScore(
+            temporal_consistency=max(1.0, 5.0 - penalties["temporal_consistency"]),
+            emotional_plausibility=max(1.0, 5.0 - penalties["emotional_plausibility"]),
+            persona_deviation=max(1.0, 5.0 - penalties["persona_deviation"]),
+            details=details,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Layer 2: StatisticalChecker (数値的)
+# ---------------------------------------------------------------------------
+
+
+class StatisticalChecker:
+    """Layer 2: 文体統計に基づく数値的検証。
+
+    平均文長、句読点頻度、疑問文比率、deviation 分析を行う。
+    """
+
+    def evaluate(
+        self,
+        diary_text: str,
+        prev_state: CharacterState,
+        curr_state: CharacterState,
+        event: DailyEvent,
+        expected_delta: dict[str, float],
+        deviation: dict[str, float],
+    ) -> LayerScore:
+        """統計的検証を実行する。
+
+        Args:
+            diary_text: 評価対象の日記テキスト。
+            prev_state: 前日の状態。
+            curr_state: 今日の状態。
+            event: 当日のイベント。
+            expected_delta: 期待変動幅。
+            deviation: 期待変動との乖離。
+
+        Returns:
+            LayerScore (各軸 1.0-5.0)。
+        """
+        penalties: dict[str, float] = {
+            "temporal_consistency": 0.0,
+            "emotional_plausibility": 0.0,
+            "persona_deviation": 0.0,
+        }
+        details: dict[str, object] = {}
+
+        # 文体統計: 平均文長
+        sentences = [s.strip() for s in re.split(r"[。.!!\n]", diary_text) if s.strip()]
+        avg_sentence_len = sum(len(s) for s in sentences) / max(len(sentences), 1)
+        details["avg_sentence_length"] = round(avg_sentence_len, 1)
+        details["sentence_count"] = len(sentences)
+
+        if avg_sentence_len < _MIN_AVG_SENTENCE_LENGTH:
+            penalties["persona_deviation"] += 1.0
+        elif avg_sentence_len > _MAX_AVG_SENTENCE_LENGTH:
+            penalties["persona_deviation"] += 0.5
+
+        # 句読点頻度
+        punctuation_count = diary_text.count("、") + diary_text.count("。") + diary_text.count("......")
+        punct_ratio = punctuation_count / max(len(diary_text), 1)
+        details["punctuation_ratio"] = round(punct_ratio, 4)
+
+        # 疑問文比率
+        question_count = diary_text.count("?") + diary_text.count("\uff1f")
+        question_ratio = question_count / max(len(sentences), 1)
+        details["question_ratio"] = round(question_ratio, 3)
+
+        # deviation 分析 -> emotional_plausibility
+        max_deviation = max(abs(v) for v in deviation.values()) if deviation else 0.0
+        details["max_deviation"] = round(max_deviation, 3)
+        if max_deviation > _MAX_DEVIATION_THRESHOLD:
+            penalties["emotional_plausibility"] += min(2.0, max_deviation * 2.0)
+
+        # 感情インパクトの大きさに対する文体の変化
+        if abs(event.emotional_impact) > 0.7:
+            # 高インパクト時に断定文比率が高すぎる場合は減点
+            assertive_markers = diary_text.count("だ。") + diary_text.count("である。")
+            if assertive_markers > 3:
+                penalties["persona_deviation"] += 1.0
+                details["excessive_assertions"] = assertive_markers
+
+        return LayerScore(
+            temporal_consistency=max(1.0, 5.0 - penalties["temporal_consistency"]),
+            emotional_plausibility=max(1.0, 5.0 - penalties["emotional_plausibility"]),
+            persona_deviation=max(1.0, 5.0 - penalties["persona_deviation"]),
+            details=details,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Layer 3: LLMJudge (定性評価) -- 既存 Critic クラスをラップ
+# ---------------------------------------------------------------------------
+
+
+class LLMJudge:
+    """Layer 3: LLM による定性評価。
+
+    既存の Critic プロンプト (Prompt_Critic.md) を使用し、
+    Layer 1/2 の結果をコンテキストとして渡す。
+    """
+
+    def __init__(
+        self,
+        client: LLMClient,
+        config: CSDGConfig,
+        prompts_dir: Path | None = None,
+    ) -> None:
+        self._client = client
+        self._config = config
+        self._prompts_dir = prompts_dir or _DEFAULT_PROMPTS_DIR
+
+    async def evaluate(
+        self,
+        diary_text: str,
+        prev_state: CharacterState,
+        curr_state: CharacterState,
+        event: DailyEvent,
+        expected_delta: dict[str, float],
+        deviation: dict[str, float],
+        layer1_result: LayerScore,
+        layer2_result: LayerScore,
+    ) -> LayerScore:
+        """LLM による定性評価を実行する。
+
+        Args:
+            diary_text: 評価対象の日記テキスト。
+            prev_state: 前日の状態。
+            curr_state: 今日の状態。
+            event: 当日のイベント。
+            expected_delta: 期待変動幅。
+            deviation: 期待変動との乖離。
+            layer1_result: RuleBasedValidator の結果。
+            layer2_result: StatisticalChecker の結果。
+
+        Returns:
+            LayerScore (各軸 1.0-5.0, LLM の整数スコアを float に変換)。
+        """
+        system_prompt = self._load_prompt("System_Persona.md")
+        user_prompt = self._build_prompt(
+            diary_text=diary_text,
+            curr_state=curr_state,
+            event=event,
+            expected_delta=expected_delta,
+            deviation=deviation,
+            layer1_result=layer1_result,
+            layer2_result=layer2_result,
+        )
+
+        critic_score = await self._client.generate_structured(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_model=CriticScore,
+            temperature=self._config.initial_temperature,
+        )
+
+        return LayerScore(
+            temporal_consistency=float(critic_score.temporal_consistency),
+            emotional_plausibility=float(critic_score.emotional_plausibility),
+            persona_deviation=float(critic_score.persona_deviation),
+            details={
+                "reject_reason": critic_score.reject_reason,
+                "revision_instruction": critic_score.revision_instruction,
+            },
+        )
+
+    def _load_prompt(self, filename: str) -> str:
+        """prompts/ ディレクトリからプロンプトファイルを読み込む。"""
+        path = self._prompts_dir / filename
+        if not path.exists():
+            raise FileNotFoundError(f"プロンプトファイルが見つかりません: {path}")
+        return path.read_text(encoding="utf-8")
+
+    def _build_prompt(
+        self,
+        diary_text: str,
+        curr_state: CharacterState,
+        event: DailyEvent,
+        expected_delta: dict[str, float],
+        deviation: dict[str, float],
+        layer1_result: LayerScore,
+        layer2_result: LayerScore,
+    ) -> str:
+        """Layer 1/2 の結果を含む Critic プロンプトを構築する。"""
+        template = self._load_prompt("Prompt_Critic.md")
+
+        base_prompt = template.format(
+            diary_text=diary_text,
+            current_state=curr_state.model_dump_json(indent=2),
+            event=event.model_dump_json(indent=2),
+            expected_delta=expected_delta,
+            deviation=deviation,
+        )
+
+        layer_context = (
+            "\n\n---\n\n## Layer 1/2 の検証結果\n\n"
+            "以下は決定論的検証 (Layer 1) と統計的検証 (Layer 2) の結果です。\n"
+            "これらの問題を踏まえて採点してください。\n\n"
+            f"### Layer 1 (RuleBased)\n"
+            f"- temporal: {layer1_result.temporal_consistency:.1f}\n"
+            f"- emotional: {layer1_result.emotional_plausibility:.1f}\n"
+            f"- persona: {layer1_result.persona_deviation:.1f}\n"
+            f"- details: {layer1_result.details}\n\n"
+            f"### Layer 2 (Statistical)\n"
+            f"- temporal: {layer2_result.temporal_consistency:.1f}\n"
+            f"- emotional: {layer2_result.emotional_plausibility:.1f}\n"
+            f"- persona: {layer2_result.persona_deviation:.1f}\n"
+            f"- details: {layer2_result.details}\n"
+        )
+
+        return base_prompt + layer_context
+
+
+# ---------------------------------------------------------------------------
+# CriticPipeline: 3層統合
+# ---------------------------------------------------------------------------
+
+
+class CriticPipeline:
+    """3層 Critic パイプライン。
+
+    RuleBasedValidator -> StatisticalChecker -> LLMJudge の順に実行し、
+    重み付き加重平均で最終 CriticScore を算出する。
+    """
+
+    def __init__(
+        self,
+        client: LLMClient,
+        config: CSDGConfig,
+        prompts_dir: Path | None = None,
+    ) -> None:
+        self._config = config
+        self._weights = config.critic_weights
+        self._rule_based = RuleBasedValidator()
+        self._statistical = StatisticalChecker()
+        self._llm_judge = LLMJudge(client, config, prompts_dir)
+
+    async def evaluate(
+        self,
+        prev_state: CharacterState,
+        curr_state: CharacterState,
+        diary_text: str,
+        event: DailyEvent,
+        prev_diary: str | None = None,
+    ) -> CriticResult:
+        """3層評価を実行し、CriticResult を返す。
+
+        Args:
+            prev_state: 前日の状態。
+            curr_state: 今日の状態。
+            diary_text: 評価対象の日記テキスト。
+            event: 当日のイベント。
+            prev_diary: 前日の日記テキスト (重複チェック用)。
+
+        Returns:
+            CriticResult (各層スコア + 統合 CriticScore)。
+        """
+        expected_delta = compute_expected_delta(event, self._config.emotion_sensitivity)
+        deviation = compute_deviation(prev_state, curr_state, expected_delta)
+
+        # Layer 1: RuleBased
+        layer1 = self._rule_based.evaluate(
+            diary_text,
+            prev_state,
+            curr_state,
+            event,
+            expected_delta,
+            prev_diary,
+        )
+
+        # Layer 2: Statistical
+        layer2 = self._statistical.evaluate(
+            diary_text,
+            prev_state,
+            curr_state,
+            event,
+            expected_delta,
+            deviation,
+        )
+
+        # Layer 3: LLMJudge
+        layer3 = await self._llm_judge.evaluate(
+            diary_text,
+            prev_state,
+            curr_state,
+            event,
+            expected_delta,
+            deviation,
+            layer1,
+            layer2,
+        )
+
+        # 重み付き加重平均で最終スコアを算出
+        final_score = self._compute_final_score(layer1, layer2, layer3)
+
+        logger.info(
+            "[Day %d] CriticPipeline: L1=%.1f/%.1f/%.1f, L2=%.1f/%.1f/%.1f, L3=%.1f/%.1f/%.1f -> Final=%d/%d/%d",
+            event.day,
+            layer1.temporal_consistency,
+            layer1.emotional_plausibility,
+            layer1.persona_deviation,
+            layer2.temporal_consistency,
+            layer2.emotional_plausibility,
+            layer2.persona_deviation,
+            layer3.temporal_consistency,
+            layer3.emotional_plausibility,
+            layer3.persona_deviation,
+            final_score.temporal_consistency,
+            final_score.emotional_plausibility,
+            final_score.persona_deviation,
+        )
+
+        return CriticResult(
+            rule_based=layer1,
+            statistical=layer2,
+            llm_judge=layer3,
+            final_score=final_score,
+            weights={
+                "rule_based": self._weights.rule_based,
+                "statistical": self._weights.statistical,
+                "llm_judge": self._weights.llm_judge,
+            },
+        )
+
+    def _compute_final_score(
+        self,
+        layer1: LayerScore,
+        layer2: LayerScore,
+        layer3: LayerScore,
+    ) -> CriticScore:
+        """3層のスコアを重み付き加重平均で統合する。"""
+        w = self._weights
+        scores: dict[str, int] = {}
+
+        for field in _SCORE_FIELDS:
+            weighted = (
+                getattr(layer1, field) * w.rule_based
+                + getattr(layer2, field) * w.statistical
+                + getattr(layer3, field) * w.llm_judge
+            )
+            scores[field] = max(1, min(5, round(weighted)))
+
+        # reject_reason / revision_instruction は LLMJudge から取得
+        reject_reason = layer3.details.get("reject_reason")
+        revision_instruction = layer3.details.get("revision_instruction")
+
+        is_reject = any(v < 3 for v in scores.values())
+        if is_reject and not reject_reason:
+            reject_reason = "Layer 1/2 の検証で問題が検出されました"
+        if is_reject and not revision_instruction:
+            revision_instruction = "Layer 1/2 で検出された問題を修正してください"
+
+        return CriticScore(
+            temporal_consistency=scores["temporal_consistency"],
+            emotional_plausibility=scores["emotional_plausibility"],
+            persona_deviation=scores["persona_deviation"],
+            reject_reason=str(reject_reason) if reject_reason else None,
+            revision_instruction=str(revision_instruction) if revision_instruction else None,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Critic クラス (後方互換性を維持)
+# ---------------------------------------------------------------------------
+
+
+class Critic:
+    """Phase 3 (評価) を担当する。
+
+    CriticPipeline を内部で使用し、既存の evaluate() インターフェースを維持する。
+    """
+
+    def __init__(
+        self,
+        client: LLMClient,
+        config: CSDGConfig,
+        prompts_dir: Path | None = None,
+    ) -> None:
+        self._client = client
+        self._config = config
+        self._prompts_dir = prompts_dir or _DEFAULT_PROMPTS_DIR
+        self._pipeline = CriticPipeline(client, config, prompts_dir)
+
+    async def evaluate(
+        self,
+        prev_state: CharacterState,
+        curr_state: CharacterState,
+        diary_text: str,
+        event: DailyEvent,
+    ) -> CriticScore:
+        """日記テキストと状態を評価し、CriticScore を返す。
+
+        内部で CriticPipeline を使用し、3層評価を実行する。
+        後方互換性のため CriticScore のみを返す。
+
+        Args:
+            prev_state: 前日のキャラクター内部状態 (h_{t-1})。
+            curr_state: 今日のキャラクター内部状態 (h_t)。
+            diary_text: Phase 2 で生成された日記テキスト。
+            event: 当日のイベント定義。
+
+        Returns:
+            CriticScore インスタンス。
+        """
+        result = await self._pipeline.evaluate(
+            prev_state,
+            curr_state,
+            diary_text,
+            event,
+        )
+        return result.final_score
+
+    def _load_prompt(self, filename: str) -> str:
+        """prompts/ ディレクトリからプロンプトファイルを読み込む。"""
+        path = self._prompts_dir / filename
+        if not path.exists():
+            raise FileNotFoundError(f"プロンプトファイルが見つかりません: {path}")
+        return path.read_text(encoding="utf-8")
+
+    def _build_critic_prompt(
+        self,
+        diary_text: str,
+        curr_state: CharacterState,
+        event: DailyEvent,
+        expected_delta: dict[str, float],
+        deviation: dict[str, float],
+    ) -> str:
+        """Phase 3 用の User Prompt を構築する (後方互換性のため維持)。"""
+        template = self._load_prompt("Prompt_Critic.md")
+
+        return template.format(
+            diary_text=diary_text,
+            current_state=curr_state.model_dump_json(indent=2),
+            event=event.model_dump_json(indent=2),
+            expected_delta=expected_delta,
+            deviation=deviation,
+        )
