@@ -24,7 +24,7 @@ Day 1 〜 Day 7 ループ:
 
 ### 主な特徴
 
-- **状態空間モデル** -- 感情パラメータ (fatigue / motivation / stress) を `-1.0` 〜 `1.0` で管理
+- **状態空間モデル** -- 感情パラメータを管理 (fatigue: `0.0`〜`1.0`、motivation/stress: `-1.0`〜`1.0`)
 - **半数式化された状態遷移** -- 決定論的な数式ベース + LLM による解釈的補正で再現性を確保
 - **3 層 Critic** -- ルールベース検証 + 統計的検証 + LLM 定性評価の重み付き統合
 - **2 層メモリ** -- 短期記憶 (直近 3 日) + 長期記憶 (信念・テーマ・転換点)
@@ -109,6 +109,7 @@ csdg/
   engine/
     actor.py              # Phase 1 (状態更新) + Phase 2 (日記生成)
     critic.py             # Phase 3 (3層評価: RuleBased / Statistical / LLMJudge)
+    critic_log.py         # CriticLog 蓄積・フィードバック注入
     state_transition.py   # 半数式化された状態遷移 (decay + event + LLM delta)
     memory.py             # 2層メモリ (ShortTerm + LongTerm)
     pipeline.py           # パイプライン制御 (リトライ / Temperature Decay / Best-of-N)
@@ -121,6 +122,7 @@ prompts/
   Prompt_StateUpdate.md   # Phase 1 プロンプト
   Prompt_Generator.md     # Phase 2 プロンプト
   Prompt_Critic.md        # Phase 3 プロンプト
+  Prompt_MemoryExtract.md # 長期記憶の信念・テーマ抽出
 ```
 
 ### Critic 3 層構造
@@ -136,7 +138,7 @@ prompts/
 ```
 base[param] = prev[param] * (1 - decay_rate) + event_impact * event_weight
 h_t[param]  = base + llm_delta[param] * llm_weight + noise
-clamp(h_t[param], -1.0, 1.0)
+clamp(h_t[param], lo, 1.0)    # lo = 0.0 for fatigue, -1.0 for others
 ```
 
 ## 開発
