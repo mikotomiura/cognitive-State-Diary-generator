@@ -198,7 +198,7 @@ class TestComputeNextState:
 
         result = compute_next_state(base_state, event, extreme_delta, config, sensitivity, seed=42)
 
-        assert -1.0 <= result.fatigue <= 1.0
+        assert 0.0 <= result.fatigue <= 1.0
         assert -1.0 <= result.motivation <= 1.0
         assert -1.0 <= result.stress <= 1.0
 

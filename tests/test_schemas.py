@@ -144,10 +144,11 @@ class TestCharacterStateClamp:
         ("field", "raw", "expected"),
         [
             ("fatigue", 1.5, 1.0),
-            ("fatigue", -1.5, -1.0),
+            ("fatigue", -1.5, 0.0),
             ("fatigue", 0.5, 0.5),
             ("fatigue", 1.0, 1.0),
-            ("fatigue", -1.0, -1.0),
+            ("fatigue", -1.0, 0.0),
+            ("fatigue", -0.5, 0.0),
             ("fatigue", 0.0, 0.0),
             ("motivation", 2.0, 1.0),
             ("motivation", -3.0, -1.0),
@@ -158,7 +159,7 @@ class TestCharacterStateClamp:
         ],
     )
     def test_clamp_continuous(self, field: str, raw: float, expected: float) -> None:
-        """連続変数は -1.0〜1.0 にクランプされる。"""
+        """連続変数はクランプされる (fatigue: 0.0〜1.0, motivation/stress: -1.0〜1.0)。"""
         state = _make_state(**{field: raw})
         assert getattr(state, field) == expected
 

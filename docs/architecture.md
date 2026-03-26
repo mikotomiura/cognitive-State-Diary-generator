@@ -92,7 +92,7 @@ h_t = f(h_{t-1}, x_t, persona)
 **設計上の重要な判断:**
 - `h_t` は必ず `CharacterState` Pydanticモデルとしてバリデーションされる
 - テキスト本文（日記）は `h_t` に含めない。Phase 1 と Phase 2 を分離することで、JSONパースエラーのリスクを低減する
-- 連続変数（`fatigue`, `motivation`, `stress`）は `-1.0` 〜 `1.0` にクランプする
+- 連続変数はクランプする: `fatigue` は `0.0` 〜 `1.0`、`motivation`, `stress` は `-1.0` 〜 `1.0`
 
 ### 2.2 メモリアーキテクチャ
 
@@ -463,7 +463,7 @@ def clamp(value: float, min_val: float = -1.0, max_val: float = 1.0) -> float:
 from pydantic import field_validator
 
 class CharacterState(BaseModel):
-    fatigue: float          # -1.0〜1.0
+    fatigue: float          # 0.0〜1.0
     motivation: float       # -1.0〜1.0
     stress: float           # -1.0〜1.0
     current_focus: str      # 現在の関心事

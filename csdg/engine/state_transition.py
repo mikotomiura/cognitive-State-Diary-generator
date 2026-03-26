@@ -92,6 +92,7 @@ def compute_next_state(
         noise = rng.gauss(0.0, config.noise_scale) if config.noise_scale > 0 else 0.0
         result = base + clipped_delta * config.llm_weight + noise
 
-        updates[param] = _clamp(result, config.clamp_min, config.clamp_max)
+        clamp_lo = 0.0 if param == "fatigue" else config.clamp_min
+        updates[param] = _clamp(result, clamp_lo, config.clamp_max)
 
     return prev_state.model_copy(update=updates)

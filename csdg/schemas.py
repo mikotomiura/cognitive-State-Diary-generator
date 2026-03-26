@@ -66,10 +66,11 @@ class CharacterState(BaseModel):
     """キャラクター内部状態 (h_t)。
 
     ある時点でのキャラクターの感情・記憶・関心事を構造化したデータモデル。
-    連続変数は -1.0〜1.0 にクランプされ、memory_buffer は最大3件に自動制限される。
+    連続変数はクランプされ（fatigue: 0.0〜1.0、motivation/stress: -1.0〜1.0）、
+    memory_buffer は最大3件に自動制限される。
     """
 
-    fatigue: float = Field(description="疲労度 (-1.0: 絶好調 〜 1.0: 限界)")
+    fatigue: float = Field(description="疲労度 (0.0: 元気 〜 1.0: 限界)")
     motivation: float = Field(description="モチベーション (-1.0: 虚無 〜 1.0: やる気満々)")
     stress: float = Field(description="ストレス値 (-1.0: リラックス 〜 1.0: 爆発寸前)")
     current_focus: str = Field(description="現在最も関心を持っている事柄")
@@ -78,11 +79,17 @@ class CharacterState(BaseModel):
     memory_buffer: list[str] = Field(default_factory=list, description="過去3日分のdaily_summary")
     relationships: dict[str, float] = Field(default_factory=dict, description="人物への好感度")
 
-    @field_validator("fatigue", "motivation", "stress")
+    @field_validator("motivation", "stress")
     @classmethod
-    def clamp_continuous(cls, v: float) -> float:
-        """連続変数を -1.0〜1.0 にクランプする。"""
+    def clamp_bipolar(cls, v: float) -> float:
+        """双極性連続変数を -1.0〜1.0 にクランプする。"""
         return max(-1.0, min(1.0, v))
+
+    @field_validator("fatigue")
+    @classmethod
+    def clamp_fatigue(cls, v: float) -> float:
+        """疲労度を 0.0〜1.0 にクランプする (0.0=元気, 1.0=限界)。"""
+        return max(0.0, min(1.0, v))
 
     @field_validator("memory_buffer")
     @classmethod
