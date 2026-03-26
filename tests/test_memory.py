@@ -337,6 +337,25 @@ class TestLLMExtraction:
         assert "新しい信念" in manager.memory.long_term.beliefs
 
     @pytest.mark.asyncio()
+    async def test_real_prompt_template_with_json_braces(self) -> None:
+        """実際の Prompt_MemoryExtract.md に JSON 例示がある場合、KeyError にならない."""
+        prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
+
+        manager = MemoryManager(window_size=3, prompts_dir=prompts_dir)
+        mock_client = AsyncMock()
+        mock_client.generate_structured.return_value = MemoryExtraction(
+            new_beliefs=["テスト信念"],
+            new_themes=[],
+        )
+
+        await manager._llm_extract_beliefs_and_themes(
+            ["[Day 1] evicted entry..."], mock_client,
+        )
+
+        assert "テスト信念" in manager.memory.long_term.beliefs
+        mock_client.generate_structured.assert_called_once()
+
+    @pytest.mark.asyncio()
     async def test_llm_extraction_failure_continues(self, tmp_path: Path) -> None:
         """LLM 呼び出しが例外を投げた場合にグレースフルに続行する."""
         prompt = tmp_path / "Prompt_MemoryExtract.md"
