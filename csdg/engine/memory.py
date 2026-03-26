@@ -3,7 +3,6 @@
 ShortTermMemory (直近N日の生テキスト) と LongTermMemory (信念・テーマ・転換点)
 を統合管理し, Actor/Critic にコンテキストを提供する.
 
-advice.md タスク3 に準拠する.
 """
 
 from __future__ import annotations

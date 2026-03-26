@@ -18,7 +18,7 @@ SCENARIO: list[DailyEvent] = [
         event_type="neutral",
         domain="仕事",
         emotional_impact=0.2,
-        description="自動化スクリプトが完成し業務効率は上がったが、手持ち無沙汰な虚しさが残る",
+        description="自動化スクリプトが完成し業務効率は上がったが、手持ち無沙汰な虚しさが残る。コードレビュー会の準備中、効率だけを追う空気に微かな違和感を覚える",
     ),
     DailyEvent(
         day=2,
@@ -45,15 +45,15 @@ SCENARIO: list[DailyEvent] = [
         day=5,
         event_type="neutral",
         domain="人間関係・内省",
-        emotional_impact=0.4,
-        description="古書店仲間のミナとの会話で「あなたは表現者だ」と指摘され、自分の立ち位置を見つめ直す",
+        emotional_impact=0.15,
+        description="まだ昨日の衝撃が抜けきらない中、古書店仲間のミナと短く話す。「あなたは表現者だ」という言葉が耳に残るが、今はまだ救いにはならない",
     ),
     DailyEvent(
         day=6,
         event_type="neutral",
-        domain="内省・思想",
+        domain="人間関係・内省",
         emotional_impact=0.5,
-        description="大学院時代の現象学ノートを発見し、過去の研究と現在の違和感が論理的に接続される",
+        description="大学院時代の現象学ノートを発見し、那由他に連絡を取る。短いやり取りの中で過去の研究と現在の違和感が接続され始める",
     ),
     DailyEvent(
         day=7,

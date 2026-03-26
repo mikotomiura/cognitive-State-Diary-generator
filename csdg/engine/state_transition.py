@@ -3,7 +3,6 @@
 決定論的な骨格 (decay + event_impact) に LLM が提案する delta 補正を加え、
 再現性と表現力のバランスを取った状態遷移を実現する。
 
-advice.md タスク2 に準拠する。
 """
 
 from __future__ import annotations

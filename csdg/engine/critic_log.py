@@ -3,7 +3,6 @@
 Critic 評価結果をログとして蓄積し、過去の失敗パターンを
 Actor プロンプトにフィードバックする軽量学習機構を提供する.
 
-advice.md タスク4 に準拠する.
 """
 
 from __future__ import annotations
