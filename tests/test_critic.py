@@ -426,40 +426,8 @@ class TestCriticEvaluate:
         assert 1 <= result.persona_deviation <= 5
         mock_llm_client.generate_structured.assert_called_once()
 
-    @pytest.mark.asyncio()
-    async def test_build_critic_prompt_injects_data(
-        self,
-        critic: Critic,
-        initial_state: CharacterState,
-        sample_event: DailyEvent,
-        sample_diary: str,
-    ) -> None:
-        """_build_critic_prompt がデータを正しく注入する."""
-        expected_delta = compute_expected_delta(
-            sample_event,
-            {"stress": -0.3, "motivation": 0.4, "fatigue": -0.2},
-        )
-        curr_state = initial_state.model_copy(
-            update={"stress": 0.0, "motivation": 0.3, "fatigue": 0.05},
-        )
-        deviation = compute_deviation(initial_state, curr_state, expected_delta)
-
-        prompt = critic._build_critic_prompt(
-            diary_text=sample_diary,
-            curr_state=curr_state,
-            event=sample_event,
-            expected_delta=expected_delta,
-            deviation=deviation,
-        )
-
-        assert "自動化スクリプト" in prompt
-        assert '"motivation"' in prompt
-        assert (
-            sample_event.description
-            in json.loads(
-                prompt.split("event: ")[1].split("\nexpected_delta:")[0],
-            )["description"]
-        )
+    # _build_critic_prompt は CriticPipeline 移行に伴い削除済み。
+    # プロンプト構築のテストは LLMJudge._build_prompt 経由で検証される。
 
 
 class TestCriticEvaluateFullPrevDiary:

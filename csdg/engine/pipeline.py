@@ -50,7 +50,7 @@ _MAX_PREV_ENDINGS = 3
 
 
 def _extract_ending(diary_text: str) -> str:
-    """日記テキストの末尾段落（余韻）を抽出する。
+    """日記テキストの末尾段落(余韻)を抽出する。
 
     Args:
         diary_text: 日記テキスト全文。
@@ -123,6 +123,7 @@ class PipelineRunner:
         self._critic = critic
         self._memory = memory_manager or MemoryManager(
             window_size=config.memory_window_size,
+            temperature_final=config.temperature_final,
         )
         self._critic_log = critic_log or CriticLog()
         self._llm_client = llm_client
@@ -169,7 +170,9 @@ class PipelineRunner:
             while overload_attempts <= _MAX_OVERLOAD_RETRIES:
                 try:
                     record = await self.run_single_day(
-                        event, current_state, day,
+                        event,
+                        current_state,
+                        day,
                         prev_diary=prev_diary,
                         prev_endings=list(prev_endings),
                     )
@@ -284,7 +287,9 @@ class PipelineRunner:
         for attempt in range(self._config.max_retries):
             try:
                 curr_state, delta_reason = await self._actor.update_state(
-                    prev_state, event, long_term_context=actor_context,
+                    prev_state,
+                    event,
+                    long_term_context=actor_context,
                 )
                 break
             except (ValidationError, ValueError) as exc:
@@ -344,7 +349,11 @@ class PipelineRunner:
             # Phase 3: Critic Evaluation (3層詳細結果を取得)
             phase3_start = time.monotonic()
             critic_result = await self._critic.evaluate_full(
-                prev_state, curr_state, diary_text, event, prev_diary=prev_diary,
+                prev_state,
+                curr_state,
+                diary_text,
+                event,
+                prev_diary=prev_diary,
             )
             critic_score = critic_result.final_score
             last_critic_result = critic_result

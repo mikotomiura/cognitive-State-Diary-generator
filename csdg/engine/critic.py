@@ -439,7 +439,9 @@ class LLMJudge:
         # 逆推定一致スコアの算出 (LLM の emotional_plausibility を基準にヒューリスティック算出)
         # deviation が大きいほど逆推定一致が低くなる
         inverse_score = self._compute_inverse_estimation(
-            diary_text, curr_state, deviation,
+            diary_text,
+            curr_state,
+            deviation,
         )
 
         return (
@@ -606,7 +608,11 @@ class CriticPipeline:
 
         # 重み付き加重平均で最終スコアを算出 (veto 権 + 逆推定一致チェック付き)
         final_score = self._compute_final_score(
-            layer1, layer2, layer3, veto_flags, inverse_score,
+            layer1,
+            layer2,
+            layer3,
+            veto_flags,
+            inverse_score,
         )
 
         logger.info(
@@ -719,9 +725,13 @@ class Critic:
         config: CSDGConfig,
         prompts_dir: Path | None = None,
     ) -> None:
-        self._client = client
-        self._config = config
-        self._prompts_dir = prompts_dir or _DEFAULT_PROMPTS_DIR
+        """Critic を初期化する。
+
+        Args:
+            client: LLM API クライアント。
+            config: パイプライン設定。
+            prompts_dir: プロンプトファイルのディレクトリパス。None の場合はデフォルト。
+        """
         self._pipeline = CriticPipeline(client, config, prompts_dir)
 
     async def evaluate(
@@ -776,21 +786,3 @@ class Critic:
             prev_diary=prev_diary,
         )
 
-    def _build_critic_prompt(
-        self,
-        diary_text: str,
-        curr_state: CharacterState,
-        event: DailyEvent,
-        expected_delta: dict[str, float],
-        deviation: dict[str, float],
-    ) -> str:
-        """Phase 3 用の User Prompt を構築する (後方互換性のため維持)。"""
-        template = load_prompt(self._prompts_dir, "Prompt_Critic.md")
-
-        return template.format(
-            diary_text=diary_text,
-            current_state=curr_state.model_dump_json(indent=2),
-            event=event.model_dump_json(indent=2),
-            expected_delta=expected_delta,
-            deviation=deviation,
-        )

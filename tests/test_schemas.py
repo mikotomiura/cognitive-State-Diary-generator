@@ -418,3 +418,28 @@ class TestLLMDeltaResponse:
         )
         restored = LLMDeltaResponse.model_validate_json(original.model_dump_json())
         assert original == restored
+
+
+# ====================================================================
+# ShortTermMemory のウィンドウサイズ制限
+# ====================================================================
+
+
+class TestShortTermMemoryWindowSize:
+    """ShortTermMemory が window_size でエントリを制限することのテスト。"""
+
+    def test_entries_trimmed_to_window_size(self) -> None:
+        """entries が window_size を超えた場合、末尾 window_size 件に制限される。"""
+        from csdg.schemas import ShortTermMemory
+
+        stm = ShortTermMemory(window_size=3, entries=[f"e{i}" for i in range(8)])
+        assert len(stm.entries) == 3
+        assert stm.entries[0] == "e5"
+        assert stm.entries[-1] == "e7"
+
+    def test_entries_within_window_size_not_trimmed(self) -> None:
+        """entries が window_size 以下の場合は変更されない。"""
+        from csdg.schemas import ShortTermMemory
+
+        stm = ShortTermMemory(window_size=5, entries=["a", "b", "c"])
+        assert len(stm.entries) == 3

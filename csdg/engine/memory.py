@@ -39,6 +39,7 @@ class MemoryManager:
         window_size: int = 3,
         memory: Memory | None = None,
         prompts_dir: Path | None = None,
+        temperature_final: float = 0.3,
     ) -> None:
         self._window_size = window_size
         self._memory = memory or Memory(
@@ -46,6 +47,7 @@ class MemoryManager:
             long_term=LongTermMemory(),
         )
         self._prompts_dir = prompts_dir or Path("prompts")
+        self._temperature_final = temperature_final
 
     @property
     def memory(self) -> Memory:
@@ -195,14 +197,15 @@ class MemoryManager:
                 current_beliefs="\n".join(self._memory.long_term.beliefs) or "(なし)",
                 current_themes="\n".join(
                     self._memory.long_term.recurring_themes,
-                ) or "(なし)",
+                )
+                or "(なし)",
             )
 
             extraction = await llm_client.generate_structured(
                 system_prompt=self._load_system_prompt(),
                 user_prompt=user_prompt,
                 response_model=MemoryExtraction,
-                temperature=0.3,
+                temperature=self._temperature_final,
             )
 
             for belief in extraction.new_beliefs:

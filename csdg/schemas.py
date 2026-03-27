@@ -66,7 +66,7 @@ class CharacterState(BaseModel):
     """キャラクター内部状態 (h_t)。
 
     ある時点でのキャラクターの感情・記憶・関心事を構造化したデータモデル。
-    連続変数はクランプされ（fatigue: 0.0〜1.0、motivation/stress: -1.0〜1.0）、
+    連続変数はクランプされ(fatigue: 0.0〜1.0、motivation/stress: -1.0〜1.0)、
     memory_buffer は最大3件に自動制限される。
     """
 
@@ -192,11 +192,12 @@ class ShortTermMemory(BaseModel):
     window_size: int = Field(default=3, description="ウィンドウサイズ")
     entries: list[str] = Field(default_factory=list, description="直近N日分の日記要約")
 
-    @field_validator("entries")
-    @classmethod
-    def limit_entries(cls, v: list[str]) -> list[str]:
-        """entries を window_size の最大値 (10) に制限する安全弁。"""
-        return v[-10:] if len(v) > 10 else v
+    @model_validator(mode="after")
+    def limit_entries_by_window(self) -> ShortTermMemory:
+        """entries を window_size に制限する。"""
+        if len(self.entries) > self.window_size:
+            self.entries = self.entries[-self.window_size :]
+        return self
 
 
 class Memory(BaseModel):

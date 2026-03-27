@@ -166,7 +166,11 @@ class Actor:
         """
         system_prompt = load_prompt(self._prompts_dir, "System_Persona.md")
         user_prompt = self._build_generator_prompt(
-            state, event, revision_instruction, long_term_context, prev_endings,
+            state,
+            event,
+            revision_instruction,
+            long_term_context,
+            prev_endings,
         )
 
         logger.debug(
