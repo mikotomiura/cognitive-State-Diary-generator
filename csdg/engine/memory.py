@@ -11,6 +11,9 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from csdg.engine.prompt_loader import load_prompt
 from csdg.schemas import LongTermMemory, Memory, MemoryExtraction, ShortTermMemory, TurningPoint
 
 if TYPE_CHECKING:
@@ -196,7 +199,7 @@ class MemoryManager:
             )
 
             extraction = await llm_client.generate_structured(
-                system_prompt="あなたは記憶管理システムです。",
+                system_prompt=self._load_system_prompt(),
                 user_prompt=user_prompt,
                 response_model=MemoryExtraction,
                 temperature=0.3,
@@ -212,7 +215,7 @@ class MemoryManager:
                 len(extraction.new_beliefs),
                 len(extraction.new_themes),
             )
-        except Exception:
+        except (ValidationError, ValueError, OSError):  # LLM API / パース / IO エラーに限定
             logger.warning(
                 "[Memory] LLM extraction failed, continuing with rule-based only",
                 exc_info=True,
@@ -291,6 +294,17 @@ class MemoryManager:
             except (ValueError, IndexError):
                 pass
         return 0
+
+    def _load_system_prompt(self) -> str:
+        """メモリ管理用のシステムプロンプトを読み込む.
+
+        System_MemoryManager.md が見つからない場合はフォールバック文字列を返す.
+        """
+        try:
+            return load_prompt(self._prompts_dir, "System_MemoryManager.md")
+        except FileNotFoundError:
+            logger.debug("[Memory] System_MemoryManager.md not found, using fallback system prompt")
+            return "あなたは記憶管理システムです。"
 
     def get_memory_buffer_for_state(self) -> list[str]:
         """CharacterState.memory_buffer に設定する値を返す.

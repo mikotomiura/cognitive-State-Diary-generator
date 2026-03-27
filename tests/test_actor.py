@@ -305,20 +305,49 @@ class TestPromptLoading:
 
     def test_missing_prompt_raises_file_not_found(
         self,
-        mock_llm_client: LLMClient,
-        test_config: CSDGConfig,
         tmp_path: Path,
     ) -> None:
         """存在しないプロンプトファイルを指定すると FileNotFoundError。"""
-        actor = Actor(mock_llm_client, test_config, prompts_dir=tmp_path)
+        from csdg.engine.prompt_loader import load_prompt
 
         with pytest.raises(FileNotFoundError, match="プロンプトファイルが見つかりません"):
-            actor._load_prompt("NonExistent.md")
+            load_prompt(tmp_path, "NonExistent.md")
 
     def test_load_prompt_returns_content(
         self,
-        actor: Actor,
+        prompts_dir: Path,
     ) -> None:
-        """_load_prompt が正しいファイル内容を返す。"""
-        content = actor._load_prompt("System_Persona.md")
+        """load_prompt が正しいファイル内容を返す。"""
+        from csdg.engine.prompt_loader import load_prompt
+
+        content = load_prompt(prompts_dir, "System_Persona.md")
         assert content == "You are Tokomi."
+
+
+# ====================================================================
+# _format_long_term_context のテスト (#21)
+# ====================================================================
+
+
+class TestFormatLongTermContext:
+    """Actor._format_long_term_context のテスト。"""
+
+    def test_all_fields_present(self) -> None:
+        ctx = {
+            "beliefs": ["信念A"],
+            "recurring_themes": ["テーマA"],
+            "turning_points": [{"day": 2, "summary": "転換点"}],
+        }
+        result = Actor._format_long_term_context(ctx)
+        assert "とこみの信念" in result
+        assert "- 信念A" in result
+        assert "Day 2: 転換点" in result
+
+    def test_empty_context_returns_empty_string(self) -> None:
+        result = Actor._format_long_term_context({"beliefs": [], "recurring_themes": [], "turning_points": []})
+        assert result == ""
+
+    def test_partial_context_only_beliefs(self) -> None:
+        result = Actor._format_long_term_context({"beliefs": ["信念A"], "recurring_themes": [], "turning_points": []})
+        assert "とこみの信念" in result
+        assert "繰り返し現れるテーマ" not in result

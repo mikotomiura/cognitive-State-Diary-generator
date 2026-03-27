@@ -366,7 +366,7 @@ class TestLLMExtraction:
 
         manager = MemoryManager(window_size=3, prompts_dir=tmp_path)
         mock_client = AsyncMock()
-        mock_client.generate_structured.side_effect = RuntimeError("API error")
+        mock_client.generate_structured.side_effect = ValueError("API error")
 
         # 例外が伝播しないことを確認
         await manager._llm_extract_beliefs_and_themes(

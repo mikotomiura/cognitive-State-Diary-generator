@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from csdg.engine.prompt_loader import load_prompt
 from csdg.engine.state_transition import compute_next_state
 from csdg.schemas import CharacterState, DailyEvent, EmotionalDelta
 
@@ -57,7 +58,7 @@ class Actor:
         self,
         prev_state: CharacterState,
         event: DailyEvent,
-        long_term_context: dict[str, Any] | None = None,
+        long_term_context: dict[str, Any] | None = None,  # LongTermMemory の構造が可変のため Any を許容
     ) -> tuple[CharacterState, str]:
         """Phase 1: イベントに基づきキャラクターの内部状態を更新する。
 
@@ -69,6 +70,7 @@ class Actor:
         Args:
             prev_state: 前日のキャラクター内部状態 (h_{t-1})。
             event: 当日のイベント定義 (x_t)。
+            long_term_context: 長期記憶コンテキスト(信念・テーマ・転換点)。None の場合は注入しない。
 
         Returns:
             (更新されたキャラクター内部状態 (h_t), delta の変化理由) のタプル。
@@ -77,7 +79,7 @@ class Actor:
             pydantic.ValidationError: LLM 出力がスキーマに適合しない場合。
             FileNotFoundError: プロンプトファイルが見つからない場合。
         """
-        system_prompt = self._load_prompt("System_Persona.md")
+        system_prompt = load_prompt(self._prompts_dir, "System_Persona.md")
         user_prompt = self._build_state_update_prompt(prev_state, event, long_term_context)
 
         logger.debug(
@@ -137,7 +139,8 @@ class Actor:
         state: CharacterState,
         event: DailyEvent,
         revision_instruction: str | None = None,
-        long_term_context: dict[str, Any] | None = None,
+        long_term_context: dict[str, Any] | None = None,  # LongTermMemory の構造が可変のため Any を許容
+        temperature: float | None = None,
     ) -> str:
         """Phase 2: 更新された状態に基づきブログ日記本文を生成する。
 
@@ -149,6 +152,8 @@ class Actor:
             state: 今日のキャラクター内部状態 (h_t)。
             event: 当日のイベント定義 (x_t)。
             revision_instruction: Critic からの修正指示 (リトライ時のみ)。
+            long_term_context: 長期記憶コンテキスト(信念・テーマ・転換点)。None の場合は注入しない。
+            temperature: 生成時の Temperature。None の場合は config のデフォルト値を使用。
 
         Returns:
             生成されたブログ日記テキスト (Markdown)。
@@ -157,7 +162,7 @@ class Actor:
             ValueError: 生成結果が空文字列の場合。
             FileNotFoundError: プロンプトファイルが見つからない場合。
         """
-        system_prompt = self._load_prompt("System_Persona.md")
+        system_prompt = load_prompt(self._prompts_dir, "System_Persona.md")
         user_prompt = self._build_generator_prompt(state, event, revision_instruction, long_term_context)
 
         logger.debug(
@@ -169,7 +174,7 @@ class Actor:
         diary_text = await self._client.generate_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            temperature=self._config.initial_temperature,
+            temperature=temperature if temperature is not None else self._config.initial_temperature,
         )
 
         logger.info(
@@ -196,28 +201,11 @@ class Actor:
         direction = "上昇" if deltas[max_param] > 0 else "低下"
         return f"{event.description[:50]}により{max_param}が{direction}(delta={deltas[max_param]:.2f})"
 
-    def _load_prompt(self, filename: str) -> str:
-        """prompts/ ディレクトリからプロンプトファイルを読み込む。
-
-        Args:
-            filename: プロンプトファイル名 (例: "System_Persona.md")。
-
-        Returns:
-            プロンプトファイルの内容。
-
-        Raises:
-            FileNotFoundError: 指定されたファイルが存在しない場合。
-        """
-        path = self._prompts_dir / filename
-        if not path.exists():
-            raise FileNotFoundError(f"プロンプトファイルが見つかりません: {path}")
-        return path.read_text(encoding="utf-8")
-
     def _build_state_update_prompt(
         self,
         prev_state: CharacterState,
         event: DailyEvent,
-        long_term_context: dict[str, Any] | None = None,
+        long_term_context: dict[str, Any] | None = None,  # LongTermMemory の構造が可変のため Any を許容
     ) -> str:
         """Phase 1 用の User Prompt を構築する。
 
@@ -232,7 +220,7 @@ class Actor:
         Returns:
             展開済みの User Prompt テキスト。
         """
-        template = self._load_prompt("Prompt_StateUpdate.md")
+        template = load_prompt(self._prompts_dir, "Prompt_StateUpdate.md")
         memory = "\n".join(prev_state.memory_buffer) or "(記憶なし)"
 
         prompt = template.format(
@@ -251,7 +239,7 @@ class Actor:
         state: CharacterState,
         event: DailyEvent,
         revision: str | None,
-        long_term_context: dict[str, Any] | None = None,
+        long_term_context: dict[str, Any] | None = None,  # LongTermMemory の構造が可変のため Any を許容
     ) -> str:
         """Phase 2 用の User Prompt を構築する。
 
@@ -267,7 +255,7 @@ class Actor:
         Returns:
             展開済みの User Prompt テキスト。
         """
-        template = self._load_prompt("Prompt_Generator.md")
+        template = load_prompt(self._prompts_dir, "Prompt_Generator.md")
         memory = "\n".join(state.memory_buffer) or "(記憶なし)"
         revision_section = f"## 修正指示\n{revision}" if revision else ""
 
@@ -284,6 +272,7 @@ class Actor:
         return prompt
 
     @staticmethod
+    # MemoryManager.get_context_for_actor() の戻り値型に依存
     def _format_long_term_context(context: dict[str, Any]) -> str:
         """長期記憶コンテキストをプロンプト用テキストに整形する。"""
         sections: list[str] = ["\n\n---\n\n## 長期記憶 (これまでの蓄積)\n"]
@@ -300,6 +289,7 @@ class Actor:
             for t in themes:
                 sections.append(f"- {t}")
 
+        # MemoryManager.get_context_for_actor() の戻り値型に依存
         turning_points: list[dict[str, Any]] = context.get("turning_points", [])
         if turning_points:
             sections.append("\n### 転換点")

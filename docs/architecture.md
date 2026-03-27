@@ -138,14 +138,43 @@ h_t = f(h_{t-1}, x_t, persona)
 
 **2層メモリ構造 (`engine/memory.py`):**
 
-スライディングウィンドウから押し出されたエントリの情報を長期記憶に蓄積する:
+スライディングウィンドウ（短期記憶）に加え、LLM抽出による長期記憶を組み合わせた2層構造でメモリを管理する。
+短期記憶から押し出されたエントリの情報は、長期記憶に蓄積される。
 
-| 層 | クラス | 内容 |
-|---|---|---|
-| ShortTermMemory | `schemas.ShortTermMemory` | 直近N日の生テキスト要約 (従来の memory_buffer 相当) |
-| LongTermMemory | `schemas.LongTermMemory` | 信念 (beliefs), 繰り返しテーマ (recurring_themes), 転換点 (turning_points) |
+```
+┌─────────────────────────────────────────────────────────┐
+│                   MemoryManager                          │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  ShortTermMemory (短期記憶)                       │    │
+│  │  window_size = 3                                 │    │
+│  │  直近N日の日記要約をスライディングウィンドウで保持  │    │
+│  │  → CharacterState.memory_buffer として Actor に渡す │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  LongTermMemory (長期記憶)                        │    │
+│  │  beliefs: list[str]          — 信念・価値観       │    │
+│  │  recurring_themes: list[str] — 繰り返しテーマ     │    │
+│  │  turning_points: list[str]   — 物語上の転換点     │    │
+│  │  → Actor の long_term_context として注入           │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                         │
+│  update_after_day(day, diary_text, state)               │
+│    1. ShortTermMemory にサマリを追加 (FIFO)             │
+│    2. LLM で diary_text から信念・テーマ・転換点を抽出   │
+│    3. LongTermMemory に抽出結果をマージ                  │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
 
-MemoryManager が2層を統合管理し、Actor/Critic にコンテキストを提供する。
+| 層 | クラス | 内容 | 注入先 |
+|---|---|---|---|
+| ShortTermMemory | `schemas.ShortTermMemory` | 直近N日の生テキスト要約 (従来の memory_buffer 相当) | `CharacterState.memory_buffer` |
+| LongTermMemory | `schemas.LongTermMemory` | 信念 (beliefs), 繰り返しテーマ (recurring_themes), 転換点 (turning_points) | Actor の `long_term_context` |
+
+`MemoryManager` が2層を統合管理し、Day 完了後に `update_after_day()` を呼び出すことで両層を更新する。
+Actor/Critic にはそれぞれ適切な粒度のコンテキストが提供される。
 
 ### 2.3 状態遷移の半数式化 (`engine/state_transition.py`)
 

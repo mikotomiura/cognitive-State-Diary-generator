@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 
@@ -54,7 +54,7 @@ class CSDGConfig(BaseSettings):
     model_config = {"env_prefix": "CSDG_", "env_file": ".env", "env_file_encoding": "utf-8"}
 
     # LLM設定
-    llm_api_key: str
+    llm_api_key: str = Field(exclude=True)
     llm_model: str = "claude-sonnet-4-20250514"
     llm_base_url: str = "https://api.anthropic.com"
 

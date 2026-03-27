@@ -107,6 +107,15 @@ Day 4の生成時には Day 1〜3 のサマリが、Day 5の生成時には Day 
 キャラクターの不変の性格・口調・禁則事項など、時間経過で変化しない情報。
 `System_Persona.md` として定義され、すべてのLLM呼び出しのシステムプロンプトに常に含まれる。
 
+### ShortTermMemory（短期記憶）
+直近の日記テキスト要約を保持するメモリ層。`window_size`（デフォルト3）件のスライディングウィンドウで管理される。`CharacterState.memory_buffer` として Actor に渡される。
+
+### LongTermMemory（長期記憶）
+LLM による抽出で蓄積される信念（`beliefs`）、繰り返しテーマ（`recurring_themes`）、物語上の転換点（`turning_points`）を保持するメモリ層。Actor の `long_term_context` として注入される。
+
+### MemoryManager（メモリマネージャ）
+`ShortTermMemory` と `LongTermMemory` を統合管理するクラス。Day 完了後に `update_after_day()` で両層を更新する。
+
 ### コンテキストウィンドウの汚染 (Context Window Pollution)
 過去の生成テキストをプロンプトに累積的に結合することで、LLMの注意が分散し、品質が劣化する現象。
 本システムでは、エピソード記憶の分離とスライディングウィンドウにより、この問題を防止する。

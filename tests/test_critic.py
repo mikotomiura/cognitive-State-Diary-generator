@@ -527,9 +527,10 @@ class TestCriticPromptLoading:
         test_config: CSDGConfig,
         tmp_path: Path,
     ) -> None:
-        critic = Critic(mock_llm_client, test_config, prompts_dir=tmp_path)
+        from csdg.engine.prompt_loader import load_prompt
+
         with pytest.raises(FileNotFoundError, match="プロンプトファイルが見つかりません"):
-            critic._load_prompt("NonExistent.md")
+            load_prompt(tmp_path, "NonExistent.md")
 
 
 # ====================================================================
@@ -871,3 +872,92 @@ class TestCriticPipeline:
         # deviation が大きいため inverse_estimation_score が低くなるはず
         if result.inverse_estimation_score is not None and result.inverse_estimation_score <= 2.0:
             assert result.final_score.emotional_plausibility <= test_config.veto_cap_emotional
+
+
+# ====================================================================
+# TestHasCriticalFailure (#5)
+# ====================================================================
+
+
+class TestHasCriticalFailure:
+    """RuleBasedValidator.has_critical_failure のテスト。"""
+
+    def test_forbidden_pronoun_triggers_persona_veto(self) -> None:
+        """forbidden_pronoun_found が True → persona 軸に veto。"""
+        validator = RuleBasedValidator()
+        result = LayerScore(
+            temporal_consistency=5.0, emotional_plausibility=5.0,
+            persona_deviation=5.0,
+            details={"forbidden_pronoun_found": True, "char_count": 1000},
+        )
+        veto = validator.has_critical_failure(result)
+        assert veto["persona_deviation"] is True
+        assert veto["temporal_consistency"] is False
+        assert veto["emotional_plausibility"] is False
+
+    def test_extreme_low_char_count_triggers_all_axes_veto(self) -> None:
+        """文字数が mid * 0.5 以下 → 全軸に veto。"""
+        validator = RuleBasedValidator()
+        result = LayerScore(
+            temporal_consistency=5.0, emotional_plausibility=5.0,
+            persona_deviation=5.0,
+            details={"char_count": 100},
+        )
+        veto = validator.has_critical_failure(result)
+        assert veto["temporal_consistency"] is True
+        assert veto["emotional_plausibility"] is True
+        assert veto["persona_deviation"] is True
+
+    def test_critical_trigram_overlap_triggers_temporal_veto(self) -> None:
+        """trigram_overlap > 0.50 → temporal 軸に veto。"""
+        validator = RuleBasedValidator()
+        result = LayerScore(
+            temporal_consistency=5.0, emotional_plausibility=5.0,
+            persona_deviation=5.0,
+            details={"char_count": 1000, "trigram_overlap": 0.55},
+        )
+        veto = validator.has_critical_failure(result)
+        assert veto["temporal_consistency"] is True
+        assert veto["emotional_plausibility"] is False
+
+    def test_no_critical_failure_returns_all_false(self) -> None:
+        """正常な結果 → veto なし。"""
+        validator = RuleBasedValidator()
+        result = LayerScore(
+            temporal_consistency=5.0, emotional_plausibility=5.0,
+            persona_deviation=5.0,
+            details={"char_count": 1000, "trigram_overlap": 0.1},
+        )
+        veto = validator.has_critical_failure(result)
+        assert all(v is False for v in veto.values())
+
+
+# ====================================================================
+# TestComputeInverseEstimation (#6)
+# ====================================================================
+
+
+class TestComputeInverseEstimation:
+    """LLMJudge._compute_inverse_estimation のテスト。"""
+
+    def setup_method(self) -> None:
+        from csdg.engine.critic import LLMJudge
+        self.judge = LLMJudge.__new__(LLMJudge)  # __init__ をバイパス
+
+    def test_empty_deviation_returns_5(self) -> None:
+        assert self.judge._compute_inverse_estimation("text", _make_state(), {}) == 5.0
+
+    def test_zero_deviation_returns_5(self) -> None:
+        assert self.judge._compute_inverse_estimation("text", _make_state(), {"stress": 0.0}) == 5.0
+
+    def test_moderate_deviation(self) -> None:
+        score = self.judge._compute_inverse_estimation("text", _make_state(), {"stress": 0.5})
+        assert score == pytest.approx(3.0, abs=0.1)
+
+    def test_large_deviation_floors_at_1(self) -> None:
+        score = self.judge._compute_inverse_estimation("text", _make_state(), {"stress": 2.0})
+        assert score == 1.0
+
+    def test_small_deviation(self) -> None:
+        score = self.judge._compute_inverse_estimation("text", _make_state(), {"stress": 0.125})
+        assert score == pytest.approx(4.5, abs=0.1)

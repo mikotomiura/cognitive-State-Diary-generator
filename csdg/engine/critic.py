@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from csdg.engine.prompt_loader import load_prompt
 from csdg.schemas import (
     CharacterState,
     CriticResult,
@@ -221,6 +222,11 @@ class RuleBasedValidator:
                 penalties["emotional_plausibility"] += 1.0
                 details[f"{param}_direction_mismatch"] = True
 
+        # unresolved_issue の null チェック: 強いネガティブイベントなのに未解決課題が未設定
+        if event.emotional_impact <= -0.5 and curr_state.unresolved_issue is None:
+            penalties["emotional_plausibility"] += 1.0
+            details["unresolved_issue_missing"] = True
+
         return LayerScore(
             temporal_consistency=max(1.0, 5.0 - penalties["temporal_consistency"]),
             emotional_plausibility=max(1.0, 5.0 - penalties["emotional_plausibility"]),
@@ -374,6 +380,13 @@ class LLMJudge:
         config: CSDGConfig,
         prompts_dir: Path | None = None,
     ) -> None:
+        """LLMJudge を初期化する。
+
+        Args:
+            client: LLM API クライアント。
+            config: パイプライン設定。
+            prompts_dir: プロンプトファイルのディレクトリパス。None の場合はデフォルト。
+        """
         self._client = client
         self._config = config
         self._prompts_dir = prompts_dir or _DEFAULT_PROMPTS_DIR
@@ -405,7 +418,7 @@ class LLMJudge:
             (LayerScore, inverse_estimation_score) のタプル。
             inverse_estimation_score は 1.0-5.0 の逆推定一致スコア。
         """
-        system_prompt = self._load_prompt("System_Persona.md")
+        system_prompt = load_prompt(self._prompts_dir, "System_Persona.md")
         user_prompt = self._build_prompt(
             diary_text=diary_text,
             curr_state=curr_state,
@@ -461,13 +474,6 @@ class LLMJudge:
         score = max(1.0, min(5.0, 5.0 - max_dev * 4.0))
         return round(score, 1)
 
-    def _load_prompt(self, filename: str) -> str:
-        """prompts/ ディレクトリからプロンプトファイルを読み込む。"""
-        path = self._prompts_dir / filename
-        if not path.exists():
-            raise FileNotFoundError(f"プロンプトファイルが見つかりません: {path}")
-        return path.read_text(encoding="utf-8")
-
     def _build_prompt(
         self,
         diary_text: str,
@@ -479,7 +485,7 @@ class LLMJudge:
         layer2_result: LayerScore,
     ) -> str:
         """Layer 1/2 の結果を含む Critic プロンプトを構築する。"""
-        template = self._load_prompt("Prompt_Critic.md")
+        template = load_prompt(self._prompts_dir, "Prompt_Critic.md")
 
         base_prompt = template.format(
             diary_text=diary_text,
@@ -526,6 +532,13 @@ class CriticPipeline:
         config: CSDGConfig,
         prompts_dir: Path | None = None,
     ) -> None:
+        """CriticPipeline を初期化する。
+
+        Args:
+            client: LLM API クライアント。
+            config: パイプライン設定。
+            prompts_dir: プロンプトファイルのディレクトリパス。None の場合はデフォルト。
+        """
         self._config = config
         self._weights = config.critic_weights
         self._veto_caps = config.veto_caps
@@ -763,13 +776,6 @@ class Critic:
             prev_diary=prev_diary,
         )
 
-    def _load_prompt(self, filename: str) -> str:
-        """prompts/ ディレクトリからプロンプトファイルを読み込む。"""
-        path = self._prompts_dir / filename
-        if not path.exists():
-            raise FileNotFoundError(f"プロンプトファイルが見つかりません: {path}")
-        return path.read_text(encoding="utf-8")
-
     def _build_critic_prompt(
         self,
         diary_text: str,
@@ -779,7 +785,7 @@ class Critic:
         deviation: dict[str, float],
     ) -> str:
         """Phase 3 用の User Prompt を構築する (後方互換性のため維持)。"""
-        template = self._load_prompt("Prompt_Critic.md")
+        template = load_prompt(self._prompts_dir, "Prompt_Critic.md")
 
         return template.format(
             diary_text=diary_text,

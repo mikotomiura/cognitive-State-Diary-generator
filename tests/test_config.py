@@ -175,3 +175,49 @@ class TestEnvironmentVariables:
         monkeypatch.delenv("CSDG_LLM_API_KEY", raising=False)
         with pytest.raises((ValueError, KeyError)):
             CSDGConfig(_env_file=None)  # type: ignore[call-arg]
+
+
+# ====================================================================
+# 派生プロパティのテスト (#15)
+# ====================================================================
+
+from csdg.config import CriticWeights, VetoCaps, StateTransitionConfig
+
+
+class TestCriticWeightsProperty:
+    """critic_weights プロパティのテスト。"""
+
+    def test_returns_critic_weights_instance(self, config: CSDGConfig) -> None:
+        weights = config.critic_weights
+        assert isinstance(weights, CriticWeights)
+        assert weights.rule_based == 0.3
+        assert weights.statistical == 0.2
+        assert weights.llm_judge == 0.5
+
+
+class TestVetoCapsProperty:
+    """veto_caps プロパティのテスト。"""
+
+    def test_returns_veto_caps_instance(self, config: CSDGConfig) -> None:
+        caps = config.veto_caps
+        assert isinstance(caps, VetoCaps)
+        assert caps.persona == 2.0
+        assert caps.temporal == 2.0
+
+
+class TestStateTransitionProperty:
+    """state_transition プロパティのテスト。"""
+
+    def test_returns_state_transition_config(self, config: CSDGConfig) -> None:
+        st = config.state_transition
+        assert isinstance(st, StateTransitionConfig)
+        assert st.decay_rate == 0.1
+        assert st.event_weight == 0.6
+
+
+class TestApiKeyExcluded:
+    """llm_api_key が model_dump から除外されることのテスト。"""
+
+    def test_api_key_excluded_from_dump(self, config: CSDGConfig) -> None:
+        dumped = config.model_dump()
+        assert "llm_api_key" not in dumped

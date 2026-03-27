@@ -13,7 +13,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003 — used at runtime in method bodies
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from csdg.schemas import CriticResult  # noqa: TC001 — Pydantic field type requires runtime access
 
@@ -93,7 +93,7 @@ class CriticLog:
                         continue
                     try:
                         entries.append(CriticLogEntry.model_validate_json(stripped))
-                    except Exception:
+                    except (ValidationError, ValueError):
                         logger.warning("[CriticLog] Failed to parse line %d in %s", line_num, path)
         logger.info("[CriticLog] Loaded %d entries from %s", len(entries), path)
         return cls(entries=entries)

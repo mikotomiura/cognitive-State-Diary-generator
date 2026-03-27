@@ -12,6 +12,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
+import httpx
+from anthropic._exceptions import OverloadedError
+
 from csdg.config import CSDGConfig
 from csdg.engine.actor import Actor
 from csdg.engine.critic import Critic, judge
@@ -415,37 +418,8 @@ class TestMemoryBuffer:
         assert "[Day 3]" in prev_state_at_day5.memory_buffer[1]
         assert "[Day 4]" in prev_state_at_day5.memory_buffer[2]
 
-    def test_update_memory_buffer_sliding_window(
-        self,
-        runner: PipelineRunner,
-        state: CharacterState,
-    ) -> None:
-        """_update_memory_buffer が window size を維持すること。"""
-        # Day 1〜4 まで buffer に追加
-        current = state
-        for day in range(1, 5):
-            current = runner._update_memory_buffer(current, f"Day {day} の日記テキスト", day)
-
-        # window_size=3 なので Day2, Day3, Day4 の要約のみ残る
-        assert len(current.memory_buffer) == 3
-        assert "[Day 2]" in current.memory_buffer[0]
-        assert "[Day 3]" in current.memory_buffer[1]
-        assert "[Day 4]" in current.memory_buffer[2]
-
-    def test_update_memory_buffer_at_day5(
-        self,
-        runner: PipelineRunner,
-        state: CharacterState,
-    ) -> None:
-        """Day 5 で buffer が [Day3, Day4, Day5] になること。"""
-        current = state
-        for day in range(1, 6):
-            current = runner._update_memory_buffer(current, f"Day {day} の日記テキスト", day)
-
-        assert len(current.memory_buffer) == 3
-        assert "[Day 3]" in current.memory_buffer[0]
-        assert "[Day 4]" in current.memory_buffer[1]
-        assert "[Day 5]" in current.memory_buffer[2]
+    # _update_memory_buffer は MemoryManager に移行済みのため、
+    # スライディングウィンドウのテストは test_memory.py を参照。
 
 
 # ====================================================================
@@ -687,3 +661,172 @@ class TestIntegrationGapFixes:
         """PipelineRunner.critic_log プロパティが CriticLog を返す。"""
         from csdg.engine.critic_log import CriticLog
         assert isinstance(runner.critic_log, CriticLog)
+
+
+# ====================================================================
+# OverloadedError リトライ: API 過負荷時にパイプラインレベルでリトライ
+# ====================================================================
+
+
+def _make_overloaded_error() -> OverloadedError:
+    """テスト用の OverloadedError を作成する。"""
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    resp = httpx.Response(
+        529,
+        json={"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}},
+        request=req,
+    )
+    return OverloadedError(message="Overloaded", response=resp, body=None)
+
+
+class TestOverloadedRetry:
+    """OverloadedError パイプラインレベルリトライのテスト。"""
+
+    @pytest.mark.asyncio()
+    async def test_overloaded_error_retries_same_day(
+        self,
+        runner: PipelineRunner,
+        mock_actor: Actor,
+        mock_critic: Critic,
+        state: CharacterState,
+    ) -> None:
+        """OverloadedError が一時的に発生しても、リトライで同一 Day が成功する。"""
+        assert isinstance(mock_actor, AsyncMock)
+        assert isinstance(mock_critic, AsyncMock)
+
+        updated_state = state.model_copy(update={"stress": 0.0})
+        call_count = 0
+
+        async def update_state_with_transient_overload(
+            prev: CharacterState,
+            event: DailyEvent,
+            long_term_context: dict | None = None,
+        ) -> tuple[CharacterState, str]:
+            nonlocal call_count
+            call_count += 1
+            # Day 1 の最初の2回は OverloadedError、3回目で成功
+            if event.day == 1 and call_count <= 2:
+                raise _make_overloaded_error()
+            return (updated_state, "テストreason")
+
+        mock_actor.update_state.side_effect = update_state_with_transient_overload
+        mock_actor.generate_diary.return_value = "今日の日記です。" * 10
+        mock_critic.evaluate_full.return_value = _wrap_as_result(_make_pass_score())
+
+        events = [_make_event(1)]
+        with patch("csdg.engine.pipeline.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            log = await runner.run(events, state)
+
+        # Day 1 が成功している
+        assert len(log.records) == 1
+        assert log.records[0].day == 1
+
+    @pytest.mark.asyncio()
+    async def test_overloaded_error_does_not_count_as_consecutive_failure(
+        self,
+        runner: PipelineRunner,
+        mock_actor: Actor,
+        mock_critic: Critic,
+        state: CharacterState,
+    ) -> None:
+        """OverloadedError のリトライで回復した場合、consecutive_failures にカウントされない。"""
+        assert isinstance(mock_actor, AsyncMock)
+        assert isinstance(mock_critic, AsyncMock)
+
+        updated_state = state.model_copy(update={"stress": 0.0})
+        call_count = 0
+
+        async def update_with_overload_on_day2(
+            prev: CharacterState,
+            event: DailyEvent,
+            long_term_context: dict | None = None,
+        ) -> tuple[CharacterState, str]:
+            nonlocal call_count
+            call_count += 1
+            # Day 2 で1回 OverloadedError、リトライで成功
+            if event.day == 2 and call_count == 2:
+                raise _make_overloaded_error()
+            return (updated_state, "テストreason")
+
+        mock_actor.update_state.side_effect = update_with_overload_on_day2
+        mock_actor.generate_diary.return_value = "今日の日記です。" * 10
+        mock_critic.evaluate_full.return_value = _wrap_as_result(_make_pass_score())
+
+        events = _make_events(3)
+        with patch("csdg.engine.pipeline.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            log = await runner.run(events, state)
+
+        # 全3Day 成功（OverloadedError は回復したので連続失敗にならない）
+        assert len(log.records) == 3
+
+    @pytest.mark.asyncio()
+    async def test_overloaded_error_exhausts_retries_then_skips(
+        self,
+        runner: PipelineRunner,
+        mock_actor: Actor,
+        mock_critic: Critic,
+        state: CharacterState,
+    ) -> None:
+        """OverloadedError がリトライ上限を超えた場合、Day スキップとなる。"""
+        assert isinstance(mock_actor, AsyncMock)
+        assert isinstance(mock_critic, AsyncMock)
+
+        updated_state = state.model_copy(update={"stress": 0.0})
+
+        async def update_always_overloaded_on_day2(
+            prev: CharacterState,
+            event: DailyEvent,
+            long_term_context: dict | None = None,
+        ) -> tuple[CharacterState, str]:
+            if event.day == 2:
+                raise _make_overloaded_error()
+            return (updated_state, "テストreason")
+
+        mock_actor.update_state.side_effect = update_always_overloaded_on_day2
+        mock_actor.generate_diary.return_value = "今日の日記です。" * 10
+        mock_critic.evaluate_full.return_value = _wrap_as_result(_make_pass_score())
+
+        events = _make_events(4)
+        with patch("csdg.engine.pipeline.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            log = await runner.run(events, state)
+
+        # Day 2 はスキップされ、Day 1, 3, 4 が成功
+        assert len(log.records) == 3
+        recorded_days = [r.day for r in log.records]
+        assert 2 not in recorded_days
+        assert recorded_days == [1, 3, 4]
+
+    @pytest.mark.asyncio()
+    async def test_other_exceptions_not_retried(
+        self,
+        runner: PipelineRunner,
+        mock_actor: Actor,
+        mock_critic: Critic,
+        state: CharacterState,
+    ) -> None:
+        """OverloadedError 以外の例外はリトライされずに即 Day スキップ。"""
+        assert isinstance(mock_actor, AsyncMock)
+        assert isinstance(mock_critic, AsyncMock)
+
+        updated_state = state.model_copy(update={"stress": 0.0})
+
+        async def update_runtime_error_on_day2(
+            prev: CharacterState,
+            event: DailyEvent,
+            long_term_context: dict | None = None,
+        ) -> tuple[CharacterState, str]:
+            if event.day == 2:
+                raise RuntimeError("予期しないエラー")
+            return (updated_state, "テストreason")
+
+        mock_actor.update_state.side_effect = update_runtime_error_on_day2
+        mock_actor.generate_diary.return_value = "今日の日記です。" * 10
+        mock_critic.evaluate_full.return_value = _wrap_as_result(_make_pass_score())
+
+        events = _make_events(3)
+        log = await runner.run(events, state)
+
+        # Day 2 がスキップ、Day 1 と 3 は成功
+        assert len(log.records) == 2
+        recorded_days = [r.day for r in log.records]
+        assert 2 not in recorded_days
