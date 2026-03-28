@@ -163,8 +163,10 @@ h_t = f(h_{t-1}, x_t, persona)
 │                                                         │
 │  update_after_day(day, diary_text, state)               │
 │    1. ShortTermMemory にサマリを追加 (FIFO)             │
-│    2. LLM で diary_text から信念・テーマ・転換点を抽出   │
-│    3. LongTermMemory に抽出結果をマージ                  │
+│    2. evict されたエントリから信念・テーマを LLM 抽出    │
+│    3. 日記全文からキーワードベースで転換点を検出          │
+│       (短期記憶の100文字切り詰めで見逃す問題を補完)      │
+│    4. LongTermMemory に抽出結果をマージ                  │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -276,7 +278,11 @@ ValidationError 発生
 | 生成ルール | `prompts/Prompt_Generator.md` | User Prompt (テキスト) |
 | 今日の状態 `h_t` | Phase 1の出力 | JSON (`CharacterState`) |
 | 今日のイベント `x_t` | `scenario.py` | JSON (`DailyEvent`) |
-| 修正指示 (リトライ時) | Phase 3の出力 | テキスト (`revision_instruction`) |
+| 修正指示 (リトライ時) | Phase 3の出力 | テキスト (`revision_instruction`、XMLデリミタ付きサニタイズ済み) |
+| 余韻フィードバック | 前Day群の末尾段落 | テキスト (`prev_endings`、直近3日分) |
+| シーン描写フィードバック | 前Day群のキーフレーズ | テキスト (`prev_images`、最大5件) |
+| 書き出しパターン | 前Day群の冒頭分類 | テキスト (`used_openings`、6パターン分類) |
+| 長期記憶 (あれば) | MemoryManager | JSON (`long_term_context`: beliefs/themes/turning_points) |
 
 **出力:** Markdown テキスト（プレーンテキスト）
 
@@ -413,6 +419,12 @@ CriticLog:
 3. `build_feedback_prompt()` で Actor プロンプトに注入
 4. Actor は過去の問題を回避して日記を生成
 
+**revision_instruction のサニタイズ (`_sanitize_revision`):**
+Critic LLM の出力が Actor プロンプトに注入されるため、プロンプトインジェクション防御として以下を適用:
+1. 制御文字を除去（改行・タブは許容）
+2. 長さ制限（500文字）
+3. `<revision>` XMLデリミタによる範囲限定
+
 ### 3.4 リトライ制御
 
 ```
@@ -520,11 +532,17 @@ main.py
   └─▶ engine/pipeline.py
         ├─▶ engine/actor.py
         │     ├─▶ schemas.py (CharacterState, DailyEvent)
+        │     ├─▶ engine/llm_client.py (AnthropicClient)
         │     └─▶ prompts/ (System_Persona.md, Prompt_StateUpdate.md, Prompt_Generator.md)
         ├─▶ engine/critic.py
-        │     ├─▶ schemas.py (CriticScore)
+        │     ├─▶ schemas.py (CriticScore, LayerScore, CriticResult)
+        │     ├─▶ engine/llm_client.py (AnthropicClient)
         │     └─▶ prompts/ (System_Persona.md, Prompt_Critic.md)
-        └─▶ config.py (EMOTION_SENSITIVITY, リトライ設定)
+        ├─▶ engine/memory.py (MemoryManager)
+        │     ├─▶ schemas.py (Memory, ShortTermMemory, LongTermMemory)
+        │     └─▶ prompts/ (Prompt_MemoryExtract.md, System_MemoryManager.md)
+        ├─▶ engine/critic_log.py (CriticLog)
+        └─▶ config.py (EMOTION_SENSITIVITY, リトライ設定, CriticWeights, VetoCaps, StateTransitionConfig)
 
 scenario.py
   └─▶ schemas.py (DailyEvent)
@@ -549,21 +567,23 @@ visualization.py (後処理)
 - 環境変数からの設定読み込み
 
 ```python
-# config.py の設計方針
+# config.py の設計方針 (主要フィールドの抜粋)
 from pydantic_settings import BaseSettings
 
 class CSDGConfig(BaseSettings):
     """環境変数 or .env から読み込む設定。"""
 
+    model_config = {"env_prefix": "CSDG_", "env_file": ".env", "env_file_encoding": "utf-8"}
+
     # LLM設定
+    llm_api_key: str = Field(exclude=True)
     llm_model: str = "claude-sonnet-4-20250514"
-    llm_api_key: str  # 必須
     llm_base_url: str = "https://api.anthropic.com"
 
     # パイプライン設定
     max_retries: int = 3
     initial_temperature: float = 0.7
-    temperature_decay_step: float = 0.2
+    temperature_final: float = 0.3
     memory_window_size: int = 3
 
     # 感情感度係数
@@ -571,26 +591,17 @@ class CSDGConfig(BaseSettings):
     emotion_sensitivity_motivation: float = 0.4
     emotion_sensitivity_fatigue: float = -0.2
 
-    # 出力
+    # Critic 重み / Veto / 状態遷移 (各 nested model に委譲)
+    critic_weight_rule_based: float = 0.3   # → CriticWeights
+    veto_cap_persona: float = 2.0           # → VetoCaps
+    state_transition_decay_rate: float = 0.1  # → StateTransitionConfig
+
     output_dir: str = "output"
-
-    model_config = {"env_prefix": "CSDG_"}
-
-    @property
-    def emotion_sensitivity(self) -> dict[str, float]:
-        return {
-            "stress": self.emotion_sensitivity_stress,
-            "motivation": self.emotion_sensitivity_motivation,
-            "fatigue": self.emotion_sensitivity_fatigue,
-        }
 
     @property
     def temperature_schedule(self) -> list[float]:
-        """リトライ時のTemperatureスケジュールを生成する。"""
-        return [
-            self.initial_temperature - (self.temperature_decay_step * i)
-            for i in range(self.max_retries)
-        ]
+        """指数減衰: temp = final + (initial - final) * exp(-decay * i)"""
+        ...
 ```
 
 #### `schemas.py` — Pydanticモデル定義
@@ -638,10 +649,12 @@ class PipelineLog(BaseModel):
 - シナリオのバリデーション（Day番号の連続性、emotional_impact の範囲）
 
 #### `engine/actor.py` — Actor
-- Phase 1: `update_state(prev_state, event, persona, prompt) -> CharacterState`
-- Phase 2: `generate_diary(state, event, persona, prompt, revision_instruction?) -> str`
+- Phase 1: `update_state(prev_state, event, long_term_context?) -> CharacterState`
+- Phase 2: `generate_diary(state, event, revision?, long_term_context?, temperature?, prev_endings?, prev_images?, used_openings?) -> str`
 - プロンプトの読み込みとテンプレート展開
-- LLM API呼び出しの抽象化
+- `prev_images`/`used_openings`/`prev_endings` のプロンプト注入セクション構築
+- 長期記憶コンテキストの整形（`_format_long_term_context()`）
+- LLM API呼び出し（`LLMClient` 経由）
 
 #### `engine/critic.py` — Critic
 - Phase 3: `evaluate(state, diary_text, event, expected_delta, deviation, persona, prompt) -> CriticScore`
@@ -655,6 +668,11 @@ class PipelineLog(BaseModel):
 - リトライ制御（Temperature Decay + Best-of-N）
 - Self-Healing / フォールバック制御
 - memory_buffer のスライディングウィンドウ管理
+- Day 間フィードバックの蓄積と注入:
+  - `_extract_ending()`: 余韻フレーズ（末尾段落）の抽出 → `prev_endings`
+  - `_extract_key_images()`: シーン描写キーフレーズの抽出 → `prev_images`
+  - `_detect_opening_pattern()`: 書き出しパターンの6分類 → `used_openings`
+- `_sanitize_revision()`: Critic の `revision_instruction` を制御文字除去 + XMLデリミタで安全化
 - 生成記録の収集
 
 ---
