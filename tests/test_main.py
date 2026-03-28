@@ -222,6 +222,8 @@ class TestRunPipeline:
             "Prompt_StateUpdate.md",
             "Prompt_Generator.md",
             "Prompt_Critic.md",
+            "Prompt_MemoryExtract.md",
+            "System_MemoryManager.md",
         ]:
             (prompts_dir / name).write_text("test", encoding="utf-8")
 

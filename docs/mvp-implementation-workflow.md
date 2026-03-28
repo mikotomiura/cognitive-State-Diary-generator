@@ -64,7 +64,7 @@ csdg/__init__.py には __version__ = "0.1.0" を定義してください。
 - 依存関係:
   - pydantic>=2.0
   - pydantic-settings>=2.0
-  - openai>=1.0
+  - anthropic>=0.30
   - matplotlib>=3.0
 - 開発用依存関係 ([project.optional-dependencies] dev):
   - pytest>=8.0
@@ -88,8 +88,8 @@ csdg/__init__.py には __version__ = "0.1.0" を定義してください。
 ### 3. .env.example の作成
 以下の環境変数テンプレートを作成:
 - CSDG_LLM_API_KEY=your-api-key-here
-- CSDG_LLM_MODEL=gpt-4o
-- CSDG_LLM_BASE_URL=https://api.openai.com/v1
+- CSDG_LLM_MODEL=claude-sonnet-4-20250514
+- CSDG_LLM_BASE_URL=https://api.anthropic.com
 - CSDG_MAX_RETRIES=3
 - CSDG_INITIAL_TEMPERATURE=0.7
 - CSDG_OUTPUT_DIR=output
@@ -319,8 +319,8 @@ pydantic-settings の BaseSettings を使用して CSDGConfig クラスを実装
 class CSDGConfig(BaseSettings):
     # LLM設定
     llm_api_key: str  # 必須（環境変数 CSDG_LLM_API_KEY）
-    llm_model: str = "gpt-4o"
-    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "claude-sonnet-4-20250514"
+    llm_base_url: str = "https://api.anthropic.com"
 
     # パイプライン設定
     max_retries: int = 3
@@ -491,20 +491,20 @@ class LLMClient(ABC):
         """プレーンテキスト生成。Phase 2 で使用。"""
         ...
 
-### 2. OpenAI 実装: OpenAIClient
+### 2. Anthropic 実装: AnthropicClient
 
-class OpenAIClient(LLMClient):
+class AnthropicClient(LLMClient):
     def __init__(self, api_key: str, model: str, base_url: str) -> None:
         ...
 
     async def generate_structured(...) -> BaseModel:
-        - openai の AsyncOpenAI クライアントを使用
+        - anthropic の AsyncAnthropic クライアントを使用
         - response_format に Pydantic モデルを指定（Structured Outputs）
         - レスポンスを response_model.model_validate_json() でパース
-        - API エラー時は openai の例外をそのまま raise
+        - API エラー時は anthropic の例外をそのまま raise
 
     async def generate_text(...) -> str:
-        - openai の AsyncOpenAI クライアントを使用
+        - anthropic の AsyncAnthropic クライアントを使用
         - response_format は指定しない（テキスト生成）
         - レスポンスの content を文字列として返す
         - 空文字列の場合は ValueError を raise
@@ -518,7 +518,7 @@ class OpenAIClient(LLMClient):
 ## テストについて
 LLMClient は抽象クラスなので、テストは Phase 6 (Actor) と Phase 7 (Critic) で
 モックを使って間接的にテストします。
-ただし、OpenAIClient のインスタンス化が正常にできることの簡単なテストは書いてください。
+ただし、AnthropicClient のインスタンス化が正常にできることの簡単なテストは書いてください。
 
 ## 完了条件
 - mypy csdg/engine/llm_client.py --strict がエラー 0
@@ -527,7 +527,7 @@ LLMClient は抽象クラスなので、テストは Phase 6 (Actor) と Phase 7
 
 ### 完了チェック
 - [ ] `LLMClient` 抽象クラスが定義されている
-- [ ] `OpenAIClient` が実装されている
+- [ ] `AnthropicClient` が実装されている
 - [ ] mypy, ruff がエラー 0
 
 尚、実装する際は.claude内にあるサブエージェント、Skillなどを積極的に活用し、commandsなどに忠実に従って実装すること。 
@@ -908,7 +908,7 @@ async def run_pipeline(args: argparse.Namespace) -> None:
 
     1. CSDGConfig を読み込む
     2. プロンプトファイルの存在を確認（なければ終了コード 3）
-    3. OpenAIClient を生成
+    3. AnthropicClient を生成
     4. Actor, Critic を生成
     5. PipelineRunner を生成
     6. scenario.SCENARIO と scenario.INITIAL_STATE でパイプラインを実行

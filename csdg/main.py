@@ -32,6 +32,8 @@ _REQUIRED_PROMPTS = [
     "Prompt_StateUpdate.md",
     "Prompt_Generator.md",
     "Prompt_Critic.md",
+    "Prompt_MemoryExtract.md",
+    "System_MemoryManager.md",
 ]
 
 # 終了コード (functional-design.md §4.3)
