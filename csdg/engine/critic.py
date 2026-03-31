@@ -38,7 +38,10 @@ _CONTINUOUS_PARAMS = ("fatigue", "motivation", "stress")
 # RuleBasedValidator の定数
 _MIN_DIARY_LENGTH = 800
 _MAX_DIARY_LENGTH = 2000
+_IDEAL_MIN_LENGTH = 1000
+_IDEAL_MAX_LENGTH = 1400
 _MAX_TRIGRAM_OVERLAP = 0.30
+_BASE_SCORE = 3.5
 _EMOJI_PATTERN = re.compile(
     r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
     r"\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0000FE00-\U0000FE0F"
@@ -49,7 +52,12 @@ _EMOJI_PATTERN = re.compile(
 # Veto 権 (致命的違反) の定数
 _CRITICAL_CHAR_DEVIATION = 0.5  # 文字数レンジの±50%逸脱
 _CRITICAL_TRIGRAM_OVERLAP = 0.50  # trigram overlap > 50%
+_CONSENSUS_AMPLIFICATION = 0.5  # L1/L2 コンセンサス補正の増幅係数
+_MAX_SCORE_ADJUSTMENT = 1  # コンセンサス補正の安全上限 (±1)
 _FORBIDDEN_PRONOUNS = ("俺", "僕", "私", "あたし", "おれ", "ぼく", "あたくし", "わし", "うち")
+
+# 余韻テンプレート反復検出用マーカー
+_ENDING_TEMPLATE_MARKERS = ("間にある", "両立", "分離", "の溝")
 
 # StatisticalChecker の定数
 _MIN_AVG_SENTENCE_LENGTH = 10
@@ -167,6 +175,11 @@ class RuleBasedValidator:
         Returns:
             LayerScore (各軸 1.0-5.0)。
         """
+        base_scores: dict[str, float] = {
+            "temporal_consistency": _BASE_SCORE,
+            "emotional_plausibility": _BASE_SCORE,
+            "persona_deviation": _BASE_SCORE,
+        }
         penalties: dict[str, float] = {
             "temporal_consistency": 0.0,
             "emotional_plausibility": 0.0,
@@ -184,6 +197,12 @@ class RuleBasedValidator:
             penalties["persona_deviation"] += 0.5
             details["char_count_violation"] = "too_long"
 
+        # 加点: 文字数が理想範囲内
+        char_count_ideal = _IDEAL_MIN_LENGTH <= char_count <= _IDEAL_MAX_LENGTH
+        details["char_count_ideal"] = char_count_ideal
+        if char_count_ideal:
+            base_scores["temporal_consistency"] += 0.5
+
         # 禁止表現検出 (絵文字) -> persona_deviation
         emoji_matches = _EMOJI_PATTERN.findall(diary_text)
         if emoji_matches:
@@ -200,6 +219,18 @@ class RuleBasedValidator:
             details["forbidden_pronoun_found"] = True
             details["forbidden_pronouns"] = found_pronouns
 
+        # 加点: 「わたし」の適度な使用
+        watashi_count = diary_text.count("わたし")
+        details["watashi_count"] = watashi_count
+        if 2 <= watashi_count <= 6:
+            base_scores["persona_deviation"] += 0.5
+
+        # 加点: 「......」の適度な使用
+        ellipsis_count = diary_text.count("......")
+        details["ellipsis_count"] = ellipsis_count
+        if 1 <= ellipsis_count <= 3:
+            base_scores["persona_deviation"] += 0.5
+
         # 前日との重複率チェック -> temporal_consistency
         if prev_diary:
             overlap = _compute_trigram_overlap(diary_text, prev_diary)
@@ -207,11 +238,18 @@ class RuleBasedValidator:
             if overlap > _MAX_TRIGRAM_OVERLAP:
                 penalties["temporal_consistency"] += 1.5
                 details["overlap_violation"] = True
+            elif overlap < 0.15:
+                # 加点: 前日との重複率が低い
+                base_scores["temporal_consistency"] += 0.5
 
         # 感情パラメータの数値整合性 -> emotional_plausibility
+        max_dev = 0.0
         for param in _CONTINUOUS_PARAMS:
             actual_delta = getattr(curr_state, param) - getattr(prev_state, param)
             expected = expected_delta.get(param, 0.0)
+            dev = abs(actual_delta - expected)
+            if dev > max_dev:
+                max_dev = dev
             # event_impact の符号と actual_delta の方向が矛盾していないか
             if (
                 abs(event.emotional_impact) > 0.5
@@ -222,17 +260,56 @@ class RuleBasedValidator:
                 penalties["emotional_plausibility"] += 1.0
                 details[f"{param}_direction_mismatch"] = True
 
+        # 加点/減点: 感情パラメータの乖離に基づく5段階スケーリング
+        details["rule_max_deviation"] = round(max_dev, 3)
+        if max_dev < 0.03:
+            base_scores["emotional_plausibility"] += 1.5
+        elif max_dev < 0.05:
+            base_scores["emotional_plausibility"] += 1.0
+        elif max_dev < 0.08:
+            base_scores["emotional_plausibility"] += 0.5
+        elif max_dev < 0.12:
+            pass  # 標準: base のまま
+        else:
+            base_scores["emotional_plausibility"] -= 0.5
+
         # unresolved_issue の null チェック: 強いネガティブイベントなのに未解決課題が未設定
         if event.emotional_impact <= -0.5 and curr_state.unresolved_issue is None:
             penalties["emotional_plausibility"] += 1.0
             details["unresolved_issue_missing"] = True
 
+        # 余韻の構造反復チェック
+        if prev_diary:
+            curr_ending = self._extract_ending(diary_text)
+            prev_ending = self._extract_ending(prev_diary)
+            curr_has_template = any(m in curr_ending for m in _ENDING_TEMPLATE_MARKERS)
+            prev_has_template = any(m in prev_ending for m in _ENDING_TEMPLATE_MARKERS)
+            if curr_has_template and prev_has_template:
+                penalties["temporal_consistency"] += 1.0
+                details["ending_template_repetition"] = True
+
+            # 余韻の trigram 類似度チェック (keyword 検出の補完)
+            ending_overlap = _compute_trigram_overlap(curr_ending, prev_ending)
+            details["ending_trigram_overlap"] = round(ending_overlap, 3)
+            if ending_overlap > 0.25:
+                penalties["temporal_consistency"] += 1.0
+                details["ending_similarity_high"] = True
+
+        def _clamp(field: str) -> float:
+            return max(1.0, min(5.0, base_scores[field] - penalties[field]))
+
         return LayerScore(
-            temporal_consistency=max(1.0, 5.0 - penalties["temporal_consistency"]),
-            emotional_plausibility=max(1.0, 5.0 - penalties["emotional_plausibility"]),
-            persona_deviation=max(1.0, 5.0 - penalties["persona_deviation"]),
+            temporal_consistency=_clamp("temporal_consistency"),
+            emotional_plausibility=_clamp("emotional_plausibility"),
+            persona_deviation=_clamp("persona_deviation"),
             details=details,
         )
+
+    @staticmethod
+    def _extract_ending(text: str) -> str:
+        """末尾段落を抽出する。"""
+        paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
+        return paragraphs[-1] if paragraphs else ""
 
     def has_critical_failure(self, result: LayerScore) -> dict[str, bool]:
         """致命的違反を検出し、veto 対象軸を返す。
@@ -312,6 +389,11 @@ class StatisticalChecker:
         Returns:
             LayerScore (各軸 1.0-5.0)。
         """
+        base_scores: dict[str, float] = {
+            "temporal_consistency": _BASE_SCORE,
+            "emotional_plausibility": _BASE_SCORE,
+            "persona_deviation": _BASE_SCORE,
+        }
         penalties: dict[str, float] = {
             "temporal_consistency": 0.0,
             "emotional_plausibility": 0.0,
@@ -330,21 +412,50 @@ class StatisticalChecker:
         elif avg_sentence_len > _MAX_AVG_SENTENCE_LENGTH:
             penalties["persona_deviation"] += 0.5
 
+        # 加点: 平均文長が適度な範囲
+        if 20 <= avg_sentence_len <= 35:
+            base_scores["persona_deviation"] += 0.5
+
         # 句読点頻度
         punctuation_count = diary_text.count("、") + diary_text.count("。") + diary_text.count("......")
         punct_ratio = punctuation_count / max(len(diary_text), 1)
         details["punctuation_ratio"] = round(punct_ratio, 4)
+
+        # 加点: 句読点頻度が安定範囲 (狭窄条件)
+        if 0.070 <= punct_ratio <= 0.080:
+            base_scores["temporal_consistency"] += 0.5
+
+        # 加点: 文数が適度な範囲 (well-paced diary)
+        sentence_count = len(sentences)
+        if 30 <= sentence_count <= 50:
+            base_scores["temporal_consistency"] += 0.5
 
         # 疑問文比率
         question_count = diary_text.count("?") + diary_text.count("\uff1f")
         question_ratio = question_count / max(len(sentences), 1)
         details["question_ratio"] = round(question_ratio, 3)
 
-        # deviation 分析 -> emotional_plausibility
+        # 加点: 疑問文比率がとこみらしい範囲
+        if 0.05 <= question_ratio <= 0.15:
+            base_scores["persona_deviation"] += 0.5
+
+        # deviation 分析 -> emotional_plausibility (連続スケーリング)
         max_deviation = max(abs(v) for v in deviation.values()) if deviation else 0.0
         details["max_deviation"] = round(max_deviation, 3)
-        if max_deviation > _MAX_DEVIATION_THRESHOLD:
-            penalties["emotional_plausibility"] += min(2.0, max_deviation * 2.0)
+        if max_deviation < 0.05:
+            base_scores["emotional_plausibility"] += 1.5
+        elif max_deviation < 0.10:
+            base_scores["emotional_plausibility"] += 1.0
+        elif max_deviation < 0.15:
+            base_scores["emotional_plausibility"] += 0.5
+        elif max_deviation < 0.25:
+            pass  # 3.5 のまま
+        elif max_deviation < 0.40:
+            penalties["emotional_plausibility"] += 0.5
+        elif max_deviation < 0.60:
+            penalties["emotional_plausibility"] += 1.5
+        else:
+            penalties["emotional_plausibility"] += 2.5
 
         # 感情インパクトの大きさに対する文体の変化
         if abs(event.emotional_impact) > 0.7:
@@ -374,10 +485,13 @@ class StatisticalChecker:
                 penalties["persona_deviation"] += 1.0
                 details["insufficient_emotional_style"] = True
 
+        def _clamp(field: str) -> float:
+            return max(1.0, min(5.0, base_scores[field] - penalties[field]))
+
         return LayerScore(
-            temporal_consistency=max(1.0, 5.0 - penalties["temporal_consistency"]),
-            emotional_plausibility=max(1.0, 5.0 - penalties["emotional_plausibility"]),
-            persona_deviation=max(1.0, 5.0 - penalties["persona_deviation"]),
+            temporal_consistency=_clamp("temporal_consistency"),
+            emotional_plausibility=_clamp("emotional_plausibility"),
+            persona_deviation=_clamp("persona_deviation"),
             details=details,
         )
 
@@ -509,16 +623,7 @@ class LLMJudge:
         """Layer 1/2 の結果を含む Critic プロンプトを構築する。"""
         template = load_prompt(self._prompts_dir, "Prompt_Critic.md")
 
-        base_prompt = template.format(
-            diary_text=diary_text,
-            current_state=curr_state.model_dump_json(indent=2),
-            event=event.model_dump_json(indent=2),
-            expected_delta=expected_delta,
-            deviation=deviation,
-        )
-
         layer_context = (
-            "\n\n---\n\n## Layer 1/2 の検証結果\n\n"
             "以下は決定論的検証 (Layer 1) と統計的検証 (Layer 2) の結果です。\n"
             "これらの問題を踏まえて採点してください。\n\n"
             f"### Layer 1 (RuleBased)\n"
@@ -533,7 +638,14 @@ class LLMJudge:
             f"- details: {layer2_result.details}\n"
         )
 
-        return base_prompt + layer_context
+        return template.format(
+            diary_text=diary_text,
+            current_state=curr_state.model_dump_json(indent=2),
+            event=event.model_dump_json(indent=2),
+            expected_delta=expected_delta,
+            deviation=deviation,
+            layer_results=layer_context,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +807,8 @@ class CriticPipeline:
             "persona_deviation": caps.persona,
         }
 
+        w_l12_sum = w.rule_based + w.statistical
+
         for field in _SCORE_FIELDS:
             weighted = (
                 getattr(layer1, field) * w.rule_based
@@ -702,12 +816,26 @@ class CriticPipeline:
                 + getattr(layer3, field) * w.llm_judge
             )
 
+            # L1/L2 コンセンサス補正: L1/L2 と L3 の乖離を増幅
+            l1_val = getattr(layer1, field)
+            l2_val = getattr(layer2, field)
+            l3_val = getattr(layer3, field)
+            l12_norm = (l1_val * w.rule_based + l2_val * w.statistical) / w_l12_sum
+            correction = (l12_norm - l3_val) * _CONSENSUS_AMPLIFICATION
+            amplified = weighted + correction
+
             if effective_veto.get(field):
                 cap = veto_cap_map[field]
-                weighted = min(weighted, cap)
+                amplified = min(amplified, cap)
                 logger.info("[Veto] %s capped to %.1f", field, cap)
 
-            scores[field] = max(1, min(5, round(weighted)))
+            # 安全制限: 補正前との差を±_MAX_SCORE_ADJUSTMENT に制限
+            non_amplified = max(1, min(5, round(weighted)))
+            final = max(1, min(5, round(amplified)))
+            scores[field] = max(
+                non_amplified - _MAX_SCORE_ADJUSTMENT,
+                min(non_amplified + _MAX_SCORE_ADJUSTMENT, final),
+            )
 
         # reject_reason / revision_instruction は LLMJudge から取得
         reject_reason = layer3.details.get("reject_reason")

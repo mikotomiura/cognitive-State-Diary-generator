@@ -211,9 +211,9 @@ class TestRuleBasedValidator:
         self.event = _make_event()
         self.expected_delta = {"stress": -0.06, "motivation": 0.08, "fatigue": -0.04}
 
-    def test_good_diary_scores_high(self) -> None:
-        """品質の良い日記で高スコア."""
-        good_diary = "あ" * 1000  # 適切な長さ、禁止表現なし
+    def test_good_diary_scores_moderate(self) -> None:
+        """禁止表現なしの日記で基本スコア付近."""
+        good_diary = "あ" * 1000  # 適切な長さだが加点要素なし
         result = self.validator.evaluate(
             good_diary,
             self.prev_state,
@@ -221,8 +221,52 @@ class TestRuleBasedValidator:
             self.event,
             self.expected_delta,
         )
+        # 基本スコア3.5 + わたし/ellipsis加点なし = 3.5
+        assert result.persona_deviation >= 3.0
+        assert result.temporal_consistency >= 3.5
+
+    def test_ideal_diary_gets_high_score(self) -> None:
+        """理想的な条件を満たす日記が 4.0-5.0 になること."""
+        # わたし4回 + ......2回 + 理想文字数
+        ideal_diary = "わたし" * 4 + "......" * 2 + "あ" * 980
+        result = self.validator.evaluate(
+            ideal_diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        # 基本3.5 + わたし0.5 + ellipsis0.5 = 4.5
         assert result.persona_deviation >= 4.0
-        assert result.temporal_consistency >= 4.0
+        assert result.persona_deviation <= 5.0
+
+    def test_normal_diary_gets_moderate_score(self) -> None:
+        """普通の日記が 3.0-4.5 の範囲に収まること."""
+        # 適切な長さだが加点要素が少ない日記: わたし=0, ellipsis=0
+        normal_diary = "今日も仕事をした。会議に出席した。" * 60
+        result = self.validator.evaluate(
+            normal_diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        # 基本3.5、加点なし、ペナルティなし = 3.5
+        assert 3.0 <= result.persona_deviation <= 4.5
+
+    def test_ending_template_repetition_detected(self) -> None:
+        """余韻テンプレート反復が検出されること."""
+        diary = "あ" * 500 + "\n\n効率とBの間にある溝は深い......"
+        prev_diary = "あ" * 500 + "\n\nAとBは両立するのだろうか......"
+        result = self.validator.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+            prev_diary=prev_diary,
+        )
+        assert result.details.get("ending_template_repetition") is True
 
     def test_short_diary_penalized(self) -> None:
         """短すぎる日記で persona_deviation が減点される."""
@@ -313,7 +357,7 @@ class TestStatisticalChecker:
         self.small_deviation = {"stress": 0.01, "motivation": -0.02, "fatigue": 0.01}
 
     def test_normal_diary_scores_high(self) -> None:
-        """通常の日記で高スコア."""
+        """通常の日記で小さい deviation なら高スコア."""
         diary = "今日は普通の一日だった。朝起きて仕事に行った。特に何も起きなかった。"
         result = self.checker.evaluate(
             diary,
@@ -323,10 +367,11 @@ class TestStatisticalChecker:
             self.expected_delta,
             self.small_deviation,
         )
+        # 基本3.5 + deviation<0.05加点1.5 = 5.0
         assert result.emotional_plausibility >= 4.0
 
     def test_large_deviation_penalized(self) -> None:
-        """大きな deviation で emotional_plausibility が減点される."""
+        """大きな deviation で emotional_plausibility が低スコアになる."""
         diary = "今日は普通の一日だった。朝起きて仕事に行った。特に何も起きなかった。"
         large_deviation = {"stress": 0.8, "motivation": -0.9, "fatigue": 0.7}
         result = self.checker.evaluate(
@@ -337,7 +382,50 @@ class TestStatisticalChecker:
             self.expected_delta,
             large_deviation,
         )
-        assert result.emotional_plausibility < 5.0
+        # 基本3.5 - 2.5(>0.6) = 1.0
+        assert result.emotional_plausibility <= 2.0
+
+    def test_small_deviation_gets_high_score(self) -> None:
+        """deviation < 0.05 で emotional 加点."""
+        diary = "今日は普通の一日だった。朝起きて仕事に行った。特に何も起きなかった。"
+        tiny_deviation = {"stress": 0.01, "motivation": -0.02, "fatigue": 0.01}
+        result = self.checker.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+            tiny_deviation,
+        )
+        assert result.emotional_plausibility >= 4.5
+
+    def test_medium_deviation_gets_moderate_score(self) -> None:
+        """deviation 0.15-0.25 で 3.5 付近."""
+        diary = "今日は普通の一日だった。朝起きて仕事に行った。特に何も起きなかった。"
+        medium_deviation = {"stress": 0.2, "motivation": -0.15, "fatigue": 0.1}
+        result = self.checker.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+            medium_deviation,
+        )
+        assert 3.0 <= result.emotional_plausibility <= 4.0
+
+    def test_large_deviation_gets_low_score(self) -> None:
+        """deviation > 0.6 で 2.0 以下."""
+        diary = "今日は普通の一日だった。朝起きて仕事に行った。特に何も起きなかった。"
+        huge_deviation = {"stress": 0.8, "motivation": -0.7, "fatigue": 0.65}
+        result = self.checker.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+            huge_deviation,
+        )
+        assert result.emotional_plausibility <= 2.0
 
     def test_statistics_in_details(self) -> None:
         """統計情報が details に含まれる."""
@@ -790,9 +878,9 @@ class TestCriticPipeline:
             _make_event(),
         )
 
-        assert result.weights["rule_based"] == pytest.approx(0.3)
-        assert result.weights["statistical"] == pytest.approx(0.2)
-        assert result.weights["llm_judge"] == pytest.approx(0.5)
+        assert result.weights["rule_based"] == pytest.approx(0.35)
+        assert result.weights["statistical"] == pytest.approx(0.30)
+        assert result.weights["llm_judge"] == pytest.approx(0.35)
 
     @pytest.mark.asyncio()
     async def test_veto_caps_persona_on_forbidden_pronoun(
@@ -994,3 +1082,148 @@ class TestComputeInverseEstimation:
     def test_small_deviation(self) -> None:
         score = self.judge._compute_inverse_estimation("text", _make_state(), {"stress": 0.125})
         assert score == pytest.approx(4.5, abs=0.1)
+
+
+# ====================================================================
+# TestConsensusAmplification (#7)
+# ====================================================================
+
+
+class TestConsensusAmplification:
+    """CriticPipeline._compute_final_score のコンセンサス補正テスト."""
+
+    def _make_pipeline(self) -> CriticPipeline:
+        from unittest.mock import MagicMock
+
+        from csdg.config import CSDGConfig
+
+        config = CSDGConfig()
+        pipeline = CriticPipeline.__new__(CriticPipeline)
+        pipeline._weights = config.critic_weights
+        pipeline._veto_caps = MagicMock()
+        pipeline._veto_caps.temporal = 2.0
+        pipeline._veto_caps.emotional = 2.0
+        pipeline._veto_caps.persona = 2.0
+        return pipeline
+
+    def _make_layer(self, t: float, e: float, p: float) -> LayerScore:
+        return LayerScore(
+            temporal_consistency=t,
+            emotional_plausibility=e,
+            persona_deviation=p,
+            details={},
+        )
+
+    def test_consensus_pushes_score_down(self) -> None:
+        """L1/L2が低くL3が高い場合、最終スコアが引き下げられる."""
+        pipeline = self._make_pipeline()
+        l1 = self._make_layer(3.0, 3.0, 4.0)
+        l2 = self._make_layer(3.0, 3.0, 4.0)
+        l3 = self._make_layer(4.0, 4.0, 4.0)
+
+        result = pipeline._compute_final_score(l1, l2, l3)
+        # L1/L2=3.0, L3=4.0 → correction pulls down
+        assert result.emotional_plausibility <= 3
+
+    def test_consensus_pushes_score_up(self) -> None:
+        """L1/L2が高くL3が低い場合、最終スコアが引き上げられる."""
+        pipeline = self._make_pipeline()
+        l1 = self._make_layer(4.0, 5.0, 4.0)
+        l2 = self._make_layer(4.0, 5.0, 4.0)
+        l3 = self._make_layer(4.0, 4.0, 4.0)
+
+        result = pipeline._compute_final_score(l1, l2, l3)
+        assert result.emotional_plausibility >= 5
+
+    def test_consensus_no_effect_when_agreement(self) -> None:
+        """L1/L2/L3が一致する場合、補正なし."""
+        pipeline = self._make_pipeline()
+        l1 = self._make_layer(4.0, 4.0, 4.0)
+        l2 = self._make_layer(4.0, 4.0, 4.0)
+        l3 = self._make_layer(4.0, 4.0, 4.0)
+
+        result = pipeline._compute_final_score(l1, l2, l3)
+        assert result.temporal_consistency == 4
+        assert result.emotional_plausibility == 4
+        assert result.persona_deviation == 4
+
+    def test_consensus_cap_limits_adjustment(self) -> None:
+        """補正による変動が±1に制限される."""
+        pipeline = self._make_pipeline()
+        # L1/L2=5.0, L3=2.0 → 大きな乖離
+        l1 = self._make_layer(5.0, 5.0, 5.0)
+        l2 = self._make_layer(5.0, 5.0, 5.0)
+        l3 = self._make_layer(2.0, 2.0, 2.0)
+
+        result = pipeline._compute_final_score(l1, l2, l3)
+
+        # 補正なしの weighted avg ≈ 3.95 → round=4
+        # 補正ありでも ±1 制限で 3-5 の範囲
+        for field in ("temporal_consistency", "emotional_plausibility", "persona_deviation"):
+            score = getattr(result, field)
+            assert 3 <= score <= 5, f"{field}={score} should be within ±1 of 4"
+
+
+# ====================================================================
+# TestEndingTrigramOverlap (#8)
+# ====================================================================
+
+
+class TestEndingTrigramOverlap:
+    """余韻 trigram 類似度チェックのテスト."""
+
+    def setup_method(self) -> None:
+        self.validator = RuleBasedValidator()
+        self.prev_state = _make_state()
+        self.curr_state = _make_state(stress=0.0, motivation=0.3)
+        self.event = _make_event()
+        self.expected_delta = {"stress": -0.06, "motivation": 0.08, "fatigue": -0.04}
+
+    def test_similar_endings_detected(self) -> None:
+        """類似した余韻がtrigramで検出される."""
+        diary = "あ" * 500 + "\n\nこの震えが教えてくれるものがあるとすれば、それは効率性では測れない何か......"
+        prev = "あ" * 500 + "\n\nこの震えが教えてくれるものがあるとすれば、それはきっと効率性の向こう側にある何か......"
+        result = self.validator.evaluate(
+            diary, self.prev_state, self.curr_state,
+            self.event, self.expected_delta, prev_diary=prev,
+        )
+        assert result.details.get("ending_similarity_high") is True or result.details.get("ending_trigram_overlap", 0) > 0.2
+
+    def test_different_endings_not_flagged(self) -> None:
+        """異なる余韻はフラグされない."""
+        diary = "あ" * 500 + "\n\nキーボードを叩く指先に、まだあの震えが残っている......"
+        prev = "あ" * 500 + "\n\n古い本のページに残った疑問符が、今夜は少し違って見える......"
+        result = self.validator.evaluate(
+            diary, self.prev_state, self.curr_state,
+            self.event, self.expected_delta, prev_diary=prev,
+        )
+        assert result.details.get("ending_similarity_high") is not True
+
+
+# ====================================================================
+# TestFinerEmotionalTiers (#9)
+# ====================================================================
+
+
+class TestFinerEmotionalTiers:
+    """L1 emotional の5段階スケーリングのテスト."""
+
+    def setup_method(self) -> None:
+        self.validator = RuleBasedValidator()
+        self.event = _make_event()
+
+    def test_tiny_deviation_gets_max_bonus(self) -> None:
+        """max_dev < 0.03 → 5.0 (base 3.5 + 1.5)."""
+        prev = _make_state(stress=0.1, motivation=0.2, fatigue=0.1)
+        curr = _make_state(stress=0.12, motivation=0.19, fatigue=0.11)
+        result = self.validator.evaluate("あ" * 1000, prev, curr, self.event, {"stress": 0.02, "motivation": -0.01, "fatigue": 0.01})
+        assert result.emotional_plausibility >= 4.5
+
+    def test_large_deviation_gets_penalty(self) -> None:
+        """max_dev >= 0.12 → 3.0 (base 3.5 - 0.5)."""
+        prev = _make_state(stress=0.0, motivation=0.0, fatigue=0.0)
+        curr = _make_state(stress=0.2, motivation=0.0, fatigue=0.0)
+        # expected=0, actual=0.2, dev=0.2 > 0.12
+        result = self.validator.evaluate("あ" * 1000, prev, curr, self.event, {"stress": 0.0, "motivation": 0.0, "fatigue": 0.0})
+        assert result.emotional_plausibility <= 3.5
+        assert result.details.get("rule_max_deviation", 0) >= 0.12

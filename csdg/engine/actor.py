@@ -144,6 +144,8 @@ class Actor:
         prev_endings: list[str] | None = None,
         prev_images: list[str] | None = None,
         used_openings: list[str] | None = None,
+        used_structures: list[str] | None = None,
+        used_philosophers: dict[str, int] | None = None,
     ) -> str:
         """Phase 2: 更新された状態に基づきブログ日記本文を生成する。
 
@@ -160,6 +162,8 @@ class Actor:
             prev_endings: 直近の日記の余韻リスト。反復回避のためプロンプトに注入する。
             prev_images: 過去の日記で使用されたシーン描写。反復回避のためプロンプトに注入する。
             used_openings: 過去の日記で使用された書き出しパターン。反復回避のためプロンプトに注入する。
+            used_structures: 過去の日記で使用された場面構造パターン。反復回避のためプロンプトに注入する。
+            used_philosophers: 哲学者・思想家の使用回数辞書。反復回避のためプロンプトに注入する。
 
         Returns:
             生成されたブログ日記テキスト (Markdown)。
@@ -177,6 +181,8 @@ class Actor:
             prev_endings,
             prev_images,
             used_openings,
+            used_structures,
+            used_philosophers,
         )
 
         logger.debug(
@@ -257,6 +263,8 @@ class Actor:
         prev_endings: list[str] | None = None,
         prev_images: list[str] | None = None,
         used_openings: list[str] | None = None,
+        used_structures: list[str] | None = None,
+        used_philosophers: dict[str, int] | None = None,
     ) -> str:
         """Phase 2 用の User Prompt を構築する。
 
@@ -271,6 +279,8 @@ class Actor:
             prev_endings: 直近の日記の余韻リスト。
             prev_images: 過去の日記で使用されたシーン描写。
             used_openings: 過去の日記で使用された書き出しパターン。
+            used_structures: 過去の日記で使用された場面構造パターン。
+            used_philosophers: 哲学者・思想家の使用回数辞書。
 
         Returns:
             展開済みの User Prompt テキスト。
@@ -322,6 +332,35 @@ class Actor:
             prev_images=images_section,
             used_openings=openings_section,
         )
+
+        # 場面構造パターンの注入
+        if used_structures:
+            structures_text = "\n".join(f"- {s}" for s in used_structures)
+            kiroji_count = sum(1 for s in used_structures if "帰路型" in s)
+            warning = ""
+            if kiroji_count >= 2:
+                warning = "\n**「帰路型」は上限(2回)に達しました。以降の日記では帰路型を使えません。**"
+            prompt += (
+                "\n\n---\n\n## 使用済み場面構造パターン\n"
+                "以下は過去の日記で使った場面構造です。\n"
+                "**「帰路型」(帰り道→電車→自宅)は7日間で最大2回まで。3回以上は禁止です。**\n"
+                f"{structures_text}{warning}"
+            )
+
+        # 哲学者・思想家の使用状況の注入
+        if used_philosophers:
+            phil_lines: list[str] = []
+            for name, count in sorted(used_philosophers.items()):
+                if count >= 2:
+                    phil_lines.append(f"- {name}: {count}回 (上限に達しました — 以降の日記では使用禁止)")
+                else:
+                    phil_lines.append(f"- {name}: {count}回")
+            phil_text = "\n".join(phil_lines)
+            prompt += (
+                "\n\n---\n\n## 使用済み哲学者・思想家\n"
+                "以下の人物は既に言及されています。**同一人物への言及は7日間で最大2回まで**です。\n"
+                f"{phil_text}"
+            )
 
         if long_term_context:
             prompt += self._format_long_term_context(long_term_context)

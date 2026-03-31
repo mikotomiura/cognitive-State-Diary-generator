@@ -21,8 +21,10 @@ from csdg.engine.pipeline import (
     PipelineRunner,
     RetryCandidate,
     _detect_opening_pattern,
+    _detect_structure_pattern,
     _extract_ending,
     _extract_key_images,
+    _extract_used_philosophers,
     _sanitize_revision,
 )
 from csdg.schemas import CharacterState, CriticResult, CriticScore, DailyEvent, LayerScore
@@ -1070,3 +1072,73 @@ class TestDetectOpeningPattern:
         """問い型の検出。"""
         result = _detect_opening_pattern("効率って、いつから美徳になったんだろうか")
         assert result == "問い型"
+
+
+# ====================================================================
+# _detect_structure_pattern: 場面構造パターンの分類
+# ====================================================================
+
+
+class TestDetectStructurePattern:
+    """_detect_structure_pattern のテスト。"""
+
+    def test_kiroji_pattern(self) -> None:
+        """帰路型の検出 (2つ以上のマーカー一致)。"""
+        text = "帰り道に電車に乗った。窓の外を眺める。"
+        assert _detect_structure_pattern(text) == "帰路型"
+
+    def test_kiroji_single_marker_not_matched(self) -> None:
+        """帰路型はマーカー1つだけでは検出されない。"""
+        text = "帰り道を歩いた。カフェに立ち寄った。"
+        assert _detect_structure_pattern(text) != "帰路型"
+
+    def test_koshotan_pattern(self) -> None:
+        """古書店型の検出。"""
+        text = "古書店の明かりが目に入った。"
+        assert _detect_structure_pattern(text) == "古書店型"
+
+    def test_kaigi_pattern(self) -> None:
+        """会議型の検出。"""
+        text = "会議室でプレゼンをした。"
+        assert _detect_structure_pattern(text) == "会議型"
+
+    def test_other_pattern(self) -> None:
+        """その他パターン。"""
+        text = "今日はカフェでコーヒーを飲みながら本を読んだ。"
+        assert _detect_structure_pattern(text) == "その他"
+
+    def test_empty_text(self) -> None:
+        """空テキストはその他。"""
+        assert _detect_structure_pattern("") == "その他"
+
+
+# ====================================================================
+# _extract_used_philosophers: 哲学者抽出
+# ====================================================================
+
+
+class TestExtractUsedPhilosophers:
+    """_extract_used_philosophers のテスト。"""
+
+    def test_single_philosopher(self) -> None:
+        """1人の哲学者を検出。"""
+        text = "西田幾多郎の純粋経験について考えた。"
+        result = _extract_used_philosophers(text)
+        assert result == ["西田幾多郎"]
+
+    def test_multiple_philosophers(self) -> None:
+        """複数の哲学者を検出。"""
+        text = "ハイデガーの存在論とカフカの変身を比較した。"
+        result = _extract_used_philosophers(text)
+        assert "ハイデガー" in result
+        assert "カフカ" in result
+
+    def test_no_philosopher(self) -> None:
+        """哲学者の言及なし。"""
+        text = "今日は普通の一日だった。"
+        result = _extract_used_philosophers(text)
+        assert result == []
+
+    def test_empty_text(self) -> None:
+        """空テキスト。"""
+        assert _extract_used_philosophers("") == []

@@ -82,6 +82,36 @@ _OPENING_METAPHOR_KEYWORDS = ("まるで", "のような", "ように")
 _OPENING_SENSORY_KEYWORDS = ("匂い", "音", "光", "温度", "風", "空気", "肌")
 _OPENING_RECALL_KEYWORDS = ("あの頃", "あの日", "大学院", "昔", "思い出", "記憶")
 
+# 場面構造パターンのマーカー (検出優先順: 古書店型 > 会議型 > 帰路型)
+_STRUCTURE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "古書店型": ("古書店",),
+    "会議型": ("会議室", "会議"),
+    "帰路型": ("帰り道", "電車", "自宅", "自室"),
+}
+
+# 哲学者・思想家のマーカー
+_PHILOSOPHER_MARKERS = (
+    "西田幾多郎",
+    "利休",
+    "ハイデガー",
+    "カフカ",
+    "ベンヤミン",
+    "メルロ=ポンティ",
+    "ソクラテス",
+    "プラトン",
+    "ウィトゲンシュタイン",
+    "野中郁次郎",
+    "和辻",
+    "九鬼",
+    "鈴木大拙",
+    "漱石",
+    "太宰",
+    "宮沢賢治",
+    "サルトル",
+    "フッサール",
+    "デリダ",
+)
+
 
 def _extract_key_images(diary_text: str, max_images: int = _MAX_PREV_IMAGES) -> list[str]:
     """日記テキストからシーンを構成するキーフレーズを抽出する。
@@ -155,6 +185,36 @@ def _extract_ending(diary_text: str) -> str:
     if not paragraphs:
         return ""
     return paragraphs[-1]
+
+
+def _detect_structure_pattern(diary_text: str) -> str:
+    """日記の場面構造パターンを分類する。
+
+    Args:
+        diary_text: 日記テキスト全文。
+
+    Returns:
+        パターン名の文字列 (帰路型/古書店型/会議型/その他)。
+    """
+    for pattern_name, markers in _STRUCTURE_PATTERNS.items():
+        match_count = sum(1 for m in markers if m in diary_text)
+        if pattern_name == "帰路型" and match_count >= 2:
+            return "帰路型"
+        if pattern_name != "帰路型" and match_count >= 1:
+            return pattern_name
+    return "その他"
+
+
+def _extract_used_philosophers(diary_text: str) -> list[str]:
+    """日記テキストから言及された哲学者・思想家を抽出する。
+
+    Args:
+        diary_text: 日記テキスト全文。
+
+    Returns:
+        言及された哲学者名のリスト。
+    """
+    return [p for p in _PHILOSOPHER_MARKERS if p in diary_text]
 
 
 def _sanitize_revision(instruction: str | None) -> str | None:
@@ -263,6 +323,8 @@ class PipelineRunner:
         prev_endings: list[str] = []
         prev_images: list[str] = []
         used_openings: list[str] = []
+        used_structures: list[str] = []
+        used_philosophers: dict[str, int] = {}
 
         for event in events:
             day = event.day
@@ -279,6 +341,8 @@ class PipelineRunner:
                         prev_endings=list(prev_endings),
                         prev_images=list(prev_images),
                         used_openings=list(used_openings),
+                        used_structures=list(used_structures),
+                        used_philosophers=dict(used_philosophers),
                     )
                     records.append(record)
                     total_retries += record.retry_count
@@ -301,6 +365,12 @@ class PipelineRunner:
                     # 書き出しパターンの蓄積
                     opening = _detect_opening_pattern(record.diary_text)
                     used_openings.append(f"Day {day}: {opening}")
+                    # 場面構造パターンの蓄積
+                    structure = _detect_structure_pattern(record.diary_text)
+                    used_structures.append(f"Day {day}: {structure}")
+                    # 哲学者引用の蓄積
+                    for phil in _extract_used_philosophers(record.diary_text):
+                        used_philosophers[phil] = used_philosophers.get(phil, 0) + 1
                     consecutive_failures = 0
                     day_success = True
                     break
@@ -374,6 +444,8 @@ class PipelineRunner:
         prev_endings: list[str] | None = None,
         prev_images: list[str] | None = None,
         used_openings: list[str] | None = None,
+        used_structures: list[str] | None = None,
+        used_philosophers: dict[str, int] | None = None,
     ) -> GenerationRecord:
         """1Dayのパイプラインを実行する。
 
@@ -388,6 +460,8 @@ class PipelineRunner:
             prev_endings: 直近の日記の余韻リスト (反復回避用)。
             prev_images: 過去の日記で使用されたシーン描写 (反復回避用)。
             used_openings: 過去の日記で使用された書き出しパターン (反復回避用)。
+            used_structures: 過去の日記で使用された場面構造パターン (反復回避用)。
+            used_philosophers: 哲学者・思想家の使用回数辞書 (反復回避用)。
 
         Returns:
             1Day分の生成記録。
@@ -461,6 +535,8 @@ class PipelineRunner:
                 prev_endings=prev_endings,
                 prev_images=prev_images,
                 used_openings=used_openings,
+                used_structures=used_structures,
+                used_philosophers=used_philosophers,
             )
             phase2_ms = int((time.monotonic() - phase2_start) * 1000)
             phase2_total_ms += phase2_ms

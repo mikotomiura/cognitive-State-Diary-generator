@@ -188,9 +188,9 @@ class TestCriticWeightsProperty:
     def test_returns_critic_weights_instance(self, config: CSDGConfig) -> None:
         weights = config.critic_weights
         assert isinstance(weights, CriticWeights)
-        assert weights.rule_based == 0.3
-        assert weights.statistical == 0.2
-        assert weights.llm_judge == 0.5
+        assert weights.rule_based == 0.35
+        assert weights.statistical == 0.30
+        assert weights.llm_judge == 0.35
 
 
 class TestVetoCapsProperty:
