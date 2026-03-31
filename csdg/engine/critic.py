@@ -41,7 +41,7 @@ _MAX_DIARY_LENGTH = 2000
 _IDEAL_MIN_LENGTH = 1000
 _IDEAL_MAX_LENGTH = 1400
 _MAX_TRIGRAM_OVERLAP = 0.30
-_BASE_SCORE = 3.5
+_BASE_SCORE = 2.5
 _EMOJI_PATTERN = re.compile(
     r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
     r"\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0000FE00-\U0000FE0F"
@@ -53,7 +53,7 @@ _EMOJI_PATTERN = re.compile(
 _CRITICAL_CHAR_DEVIATION = 0.5  # 文字数レンジの±50%逸脱
 _CRITICAL_TRIGRAM_OVERLAP = 0.50  # trigram overlap > 50%
 _CONSENSUS_AMPLIFICATION = 0.5  # L1/L2 コンセンサス補正の増幅係数
-_MAX_SCORE_ADJUSTMENT = 1  # コンセンサス補正の安全上限 (±1)
+_MAX_SCORE_ADJUSTMENT = 0  # コンセンサス補正の安全上限 (±0: 純粋加重平均 round に従う)
 _FORBIDDEN_PRONOUNS = ("俺", "僕", "私", "あたし", "おれ", "ぼく", "あたくし", "わし", "うち")
 
 # 余韻テンプレート反復検出用マーカー
@@ -197,11 +197,13 @@ class RuleBasedValidator:
             penalties["persona_deviation"] += 0.5
             details["char_count_violation"] = "too_long"
 
-        # 加点: 文字数が理想範囲内
+        # 加点: 文字数が理想範囲内 (段階化)
         char_count_ideal = _IDEAL_MIN_LENGTH <= char_count <= _IDEAL_MAX_LENGTH
         details["char_count_ideal"] = char_count_ideal
-        if char_count_ideal:
-            base_scores["temporal_consistency"] += 0.5
+        if 1000 <= char_count <= 1200:
+            base_scores["temporal_consistency"] += 1.0  # sweet spot
+        elif char_count_ideal:
+            base_scores["temporal_consistency"] += 0.5  # acceptable
 
         # 禁止表現検出 (絵文字) -> persona_deviation
         emoji_matches = _EMOJI_PATTERN.findall(diary_text)
@@ -219,17 +221,23 @@ class RuleBasedValidator:
             details["forbidden_pronoun_found"] = True
             details["forbidden_pronouns"] = found_pronouns
 
-        # 加点: 「わたし」の適度な使用
+        # 加点/減点: 「わたし」の使用頻度 (段階化)
         watashi_count = diary_text.count("わたし")
         details["watashi_count"] = watashi_count
-        if 2 <= watashi_count <= 6:
-            base_scores["persona_deviation"] += 0.5
+        if 4 <= watashi_count <= 6:
+            base_scores["persona_deviation"] += 1.0  # sweet spot
+        elif 2 <= watashi_count <= 8:
+            base_scores["persona_deviation"] += 0.5  # acceptable
+        elif watashi_count > 8:
+            base_scores["persona_deviation"] -= 1.0  # overuse penalty
 
-        # 加点: 「......」の適度な使用
+        # 加点: 「......」の使用頻度 (段階化)
         ellipsis_count = diary_text.count("......")
         details["ellipsis_count"] = ellipsis_count
-        if 1 <= ellipsis_count <= 3:
-            base_scores["persona_deviation"] += 0.5
+        if 2 <= ellipsis_count <= 3:
+            base_scores["persona_deviation"] += 1.0  # sweet spot
+        elif ellipsis_count in (1, 4):
+            base_scores["persona_deviation"] += 0.5  # acceptable
 
         # 前日との重複率チェック -> temporal_consistency
         if prev_diary:
@@ -238,9 +246,12 @@ class RuleBasedValidator:
             if overlap > _MAX_TRIGRAM_OVERLAP:
                 penalties["temporal_consistency"] += 1.5
                 details["overlap_violation"] = True
+            elif overlap < 0.10:
+                # 加点: 前日との重複率が非常に低い
+                base_scores["temporal_consistency"] += 1.0  # very different
             elif overlap < 0.15:
                 # 加点: 前日との重複率が低い
-                base_scores["temporal_consistency"] += 0.5
+                base_scores["temporal_consistency"] += 0.5  # moderately different
 
         # 感情パラメータの数値整合性 -> emotional_plausibility
         max_dev = 0.0
@@ -271,7 +282,7 @@ class RuleBasedValidator:
         elif max_dev < 0.12:
             pass  # 標準: base のまま
         else:
-            base_scores["emotional_plausibility"] -= 0.5
+            base_scores["emotional_plausibility"] -= 1.0  # penalty 増強
 
         # unresolved_issue の null チェック: 強いネガティブイベントなのに未解決課題が未設定
         if event.emotional_impact <= -0.5 and curr_state.unresolved_issue is None:
@@ -412,32 +423,40 @@ class StatisticalChecker:
         elif avg_sentence_len > _MAX_AVG_SENTENCE_LENGTH:
             penalties["persona_deviation"] += 0.5
 
-        # 加点: 平均文長が適度な範囲
-        if 20 <= avg_sentence_len <= 35:
-            base_scores["persona_deviation"] += 0.5
+        # 加点: 平均文長が適度な範囲 (段階化)
+        if 25 <= avg_sentence_len <= 30:
+            base_scores["persona_deviation"] += 1.0  # sweet spot
+        elif 20 <= avg_sentence_len <= 35:
+            base_scores["persona_deviation"] += 0.5  # acceptable
 
         # 句読点頻度
         punctuation_count = diary_text.count("、") + diary_text.count("。") + diary_text.count("......")
         punct_ratio = punctuation_count / max(len(diary_text), 1)
         details["punctuation_ratio"] = round(punct_ratio, 4)
 
-        # 加点: 句読点頻度が安定範囲 (狭窄条件)
+        # 加点: 句読点頻度が安定範囲 (段階化)
         if 0.070 <= punct_ratio <= 0.080:
-            base_scores["temporal_consistency"] += 0.5
+            base_scores["temporal_consistency"] += 1.0  # sweet spot
+        elif 0.060 <= punct_ratio <= 0.090:
+            base_scores["temporal_consistency"] += 0.5  # acceptable
 
-        # 加点: 文数が適度な範囲 (well-paced diary)
+        # 加点: 文数が適度な範囲 (段階化)
         sentence_count = len(sentences)
-        if 30 <= sentence_count <= 50:
-            base_scores["temporal_consistency"] += 0.5
+        if 35 <= sentence_count <= 45:
+            base_scores["temporal_consistency"] += 1.0  # sweet spot
+        elif 30 <= sentence_count <= 50:
+            base_scores["temporal_consistency"] += 0.5  # acceptable
 
         # 疑問文比率
         question_count = diary_text.count("?") + diary_text.count("\uff1f")
         question_ratio = question_count / max(len(sentences), 1)
         details["question_ratio"] = round(question_ratio, 3)
 
-        # 加点: 疑問文比率がとこみらしい範囲
-        if 0.05 <= question_ratio <= 0.15:
-            base_scores["persona_deviation"] += 0.5
+        # 加点: 疑問文比率がとこみらしい範囲 (段階化)
+        if 0.06 <= question_ratio <= 0.10:
+            base_scores["persona_deviation"] += 1.0  # sweet spot
+        elif 0.05 <= question_ratio <= 0.15:
+            base_scores["persona_deviation"] += 0.5  # acceptable
 
         # deviation 分析 -> emotional_plausibility (連続スケーリング)
         max_deviation = max(abs(v) for v in deviation.values()) if deviation else 0.0
@@ -449,9 +468,9 @@ class StatisticalChecker:
         elif max_deviation < 0.15:
             base_scores["emotional_plausibility"] += 0.5
         elif max_deviation < 0.25:
-            pass  # 3.5 のまま
+            pass  # base のまま
         elif max_deviation < 0.40:
-            penalties["emotional_plausibility"] += 0.5
+            penalties["emotional_plausibility"] += 1.0  # penalty 増強
         elif max_deviation < 0.60:
             penalties["emotional_plausibility"] += 1.5
         else:

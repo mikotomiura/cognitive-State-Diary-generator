@@ -4,10 +4,12 @@
 1. Layer 1/2 のスコア分散 (標準偏差)
 2. 最終スコアのスコア分散
 3. 各軸のスコアレンジ (max - min)
+4. 加重平均のレンジ
 
 判定基準:
 - L1/L2 の標準偏差 > 0.3 (修正前は 0.0)
 - 最終スコアのレンジ >= 2 (修正前は 1)
+- 加重平均のレンジ > 1.5
 
 使い方:
     python scripts/verify_critic_discrimination.py output/generation_log.json
@@ -21,24 +23,36 @@ import sys
 from pathlib import Path
 
 
-def _extract_layer_scores(
-    records: list[dict[str, object]],
+def _load_critic_log(log_dir: Path, num_days: int) -> list[dict[str, object]]:
+    """critic_log.jsonl から最新 num_days 件のエントリを読み込む。"""
+    critic_path = log_dir / "critic_log.jsonl"
+    if not critic_path.exists():
+        return []
+    entries: list[dict[str, object]] = []
+    with critic_path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                entries.append(json.loads(line))
+    # 最新の num_days 件を返す
+    return entries[-num_days:] if len(entries) >= num_days else entries
+
+
+def _extract_layer_scores_from_critic_log(
+    entries: list[dict[str, object]],
     layer_key: str,
 ) -> dict[str, list[float]]:
-    """レコードから指定レイヤーの各軸スコアを抽出する。"""
+    """critic_log.jsonl のエントリから指定レイヤーの各軸スコアを抽出する。"""
     axes: dict[str, list[float]] = {
         "temporal_consistency": [],
         "emotional_plausibility": [],
         "persona_deviation": [],
     }
-    for record in records:
-        critic_results = record.get("critic_results")
-        if not isinstance(critic_results, list) or not critic_results:
+    for entry in entries:
+        scores = entry.get("scores")
+        if not isinstance(scores, dict):
             continue
-        last_result = critic_results[-1]
-        if not isinstance(last_result, dict):
-            continue
-        layer = last_result.get(layer_key)
+        layer = scores.get(layer_key)
         if not isinstance(layer, dict):
             continue
         for axis in axes:
@@ -51,7 +65,7 @@ def _extract_layer_scores(
 def _extract_final_scores(
     records: list[dict[str, object]],
 ) -> dict[str, list[int]]:
-    """レコードから最終スコアの各軸スコアを抽出する。"""
+    """generation_log.json から最終スコアの各軸スコアを抽出する。"""
     axes: dict[str, list[int]] = {
         "temporal_consistency": [],
         "emotional_plausibility": [],
@@ -86,15 +100,23 @@ def main(log_path: str) -> None:
         print("Error: records が空です")
         sys.exit(1)
 
-    print(f"=== Critic 弁別力検証: {len(records)} Days ===\n")
+    num_days = len(records)
+    print(f"=== Critic 弁別力検証: {num_days} Days ===\n")
 
-    # Layer 1/2 のスコア分散
+    # critic_log.jsonl からレイヤースコアを抽出
+    log_dir = path.parent
+    critic_entries = _load_critic_log(log_dir, num_days)
+
+    if critic_entries:
+        print(f"(critic_log.jsonl から {len(critic_entries)} エントリを読み込み)\n")
+
+    # Layer 1/2/3 のスコア分散
     for layer_name, layer_key in [
         ("Layer 1 (RuleBased)", "rule_based"),
         ("Layer 2 (Statistical)", "statistical"),
         ("Layer 3 (LLMJudge)", "llm_judge"),
     ]:
-        scores = _extract_layer_scores(records, layer_key)
+        scores = _extract_layer_scores_from_critic_log(critic_entries, layer_key)
         print(f"--- {layer_name} ---")
         for axis, values in scores.items():
             if len(values) >= 2:
@@ -119,13 +141,46 @@ def main(log_path: str) -> None:
         else:
             print(f"  {axis}: データ不足 ({len(values)} records)")
 
+    # 加重平均 range
+    weights = {"rule_based": 0.40, "statistical": 0.35, "llm_judge": 0.25}
+    layer_keys = ["rule_based", "statistical", "llm_judge"]
+    all_layer_scores: dict[str, dict[str, list[float]]] = {}
+    for layer_key in layer_keys:
+        all_layer_scores[layer_key] = _extract_layer_scores_from_critic_log(critic_entries, layer_key)
+
+    num_entries = len(critic_entries)
+    weighted_avgs: list[float] = []
+    for i in range(num_entries):
+        day_scores: dict[str, float] = {}
+        valid = True
+        for axis in ["temporal_consistency", "emotional_plausibility", "persona_deviation"]:
+            axis_weighted = 0.0
+            for layer_key in layer_keys:
+                vals = all_layer_scores[layer_key][axis]
+                if i >= len(vals):
+                    valid = False
+                    break
+                axis_weighted += weights[layer_key] * vals[i]
+            if not valid:
+                break
+            day_scores[axis] = axis_weighted
+        if valid and day_scores:
+            avg = statistics.mean(day_scores.values())
+            weighted_avgs.append(round(avg, 3))
+
+    if weighted_avgs:
+        wa_range = max(weighted_avgs) - min(weighted_avgs)
+        print(f"\n--- Weighted Average (w={weights}) ---")
+        print(f"  values={weighted_avgs}")
+        print(f"  range={wa_range:.3f}")
+
     # 判定
     print("\n=== 判定 ===")
     for layer_name, layer_key in [
         ("L1", "rule_based"),
         ("L2", "statistical"),
     ]:
-        scores = _extract_layer_scores(records, layer_key)
+        scores = _extract_layer_scores_from_critic_log(critic_entries, layer_key)
         stds = []
         for values in scores.values():
             if len(values) >= 2:
@@ -143,6 +198,29 @@ def main(log_path: str) -> None:
             print(f"  Final {axis} レンジ: {rng} (目標 >= 2) [{status}]")
             if status == "FAIL":
                 all_ok = False
+
+    # 加重平均 range 判定
+    if weighted_avgs:
+        wa_range = max(weighted_avgs) - min(weighted_avgs)
+        status = "PASS" if wa_range > 1.5 else "FAIL"
+        print(f"  Weighted Avg レンジ: {wa_range:.3f} (目標 > 1.5) [{status}]")
+        if status == "FAIL":
+            all_ok = False
+
+    # Unique patterns 判定
+    unique_patterns = set()
+    for record in records:
+        scores_list = record.get("critic_scores")
+        if isinstance(scores_list, list) and scores_list:
+            last = scores_list[-1]
+            if isinstance(last, dict):
+                t = last.get("temporal_consistency", 0)
+                e = last.get("emotional_plausibility", 0)
+                p = last.get("persona_deviation", 0)
+                unique_patterns.add((t, e, p))
+    print(f"  Unique スコアパターン: {len(unique_patterns)} (目標 >= 3)")
+    if len(unique_patterns) < 3:
+        all_ok = False
 
     print()
     if all_ok:

@@ -221,9 +221,9 @@ class TestRuleBasedValidator:
             self.event,
             self.expected_delta,
         )
-        # 基本スコア3.5 + わたし/ellipsis加点なし = 3.5
-        assert result.persona_deviation >= 3.0
-        assert result.temporal_consistency >= 3.5
+        # 基本スコア2.5 + わたし/ellipsis加点なし = 2.5
+        assert result.persona_deviation >= 2.0
+        assert result.temporal_consistency >= 2.5
 
     def test_ideal_diary_gets_high_score(self) -> None:
         """理想的な条件を満たす日記が 4.0-5.0 になること."""
@@ -236,7 +236,7 @@ class TestRuleBasedValidator:
             self.event,
             self.expected_delta,
         )
-        # 基本3.5 + わたし0.5 + ellipsis0.5 = 4.5
+        # 基本2.5 + わたし1.0(sweet) + ellipsis1.0(sweet) = 4.5
         assert result.persona_deviation >= 4.0
         assert result.persona_deviation <= 5.0
 
@@ -251,8 +251,8 @@ class TestRuleBasedValidator:
             self.event,
             self.expected_delta,
         )
-        # 基本3.5、加点なし、ペナルティなし = 3.5
-        assert 3.0 <= result.persona_deviation <= 4.5
+        # 基本2.5、加点なし、ペナルティなし = 2.5
+        assert 2.0 <= result.persona_deviation <= 3.5
 
     def test_ending_template_repetition_detected(self) -> None:
         """余韻テンプレート反復が検出されること."""
@@ -367,8 +367,8 @@ class TestStatisticalChecker:
             self.expected_delta,
             self.small_deviation,
         )
-        # 基本3.5 + deviation<0.05加点1.5 = 5.0
-        assert result.emotional_plausibility >= 4.0
+        # 基本2.5 + deviation<0.05加点1.5 = 4.0
+        assert result.emotional_plausibility >= 3.0
 
     def test_large_deviation_penalized(self) -> None:
         """大きな deviation で emotional_plausibility が低スコアになる."""
@@ -382,7 +382,7 @@ class TestStatisticalChecker:
             self.expected_delta,
             large_deviation,
         )
-        # 基本3.5 - 2.5(>0.6) = 1.0
+        # 基本2.5 - 2.5(>0.6) = 0.0 (clamped 1.0)
         assert result.emotional_plausibility <= 2.0
 
     def test_small_deviation_gets_high_score(self) -> None:
@@ -397,10 +397,10 @@ class TestStatisticalChecker:
             self.expected_delta,
             tiny_deviation,
         )
-        assert result.emotional_plausibility >= 4.5
+        assert result.emotional_plausibility >= 3.5
 
     def test_medium_deviation_gets_moderate_score(self) -> None:
-        """deviation 0.15-0.25 で 3.5 付近."""
+        """deviation 0.15-0.25 で 2.5 付近."""
         diary = "今日は普通の一日だった。朝起きて仕事に行った。特に何も起きなかった。"
         medium_deviation = {"stress": 0.2, "motivation": -0.15, "fatigue": 0.1}
         result = self.checker.evaluate(
@@ -411,7 +411,7 @@ class TestStatisticalChecker:
             self.expected_delta,
             medium_deviation,
         )
-        assert 3.0 <= result.emotional_plausibility <= 4.0
+        assert 2.0 <= result.emotional_plausibility <= 3.0
 
     def test_large_deviation_gets_low_score(self) -> None:
         """deviation > 0.6 で 2.0 以下."""
@@ -878,9 +878,9 @@ class TestCriticPipeline:
             _make_event(),
         )
 
-        assert result.weights["rule_based"] == pytest.approx(0.35)
-        assert result.weights["statistical"] == pytest.approx(0.30)
-        assert result.weights["llm_judge"] == pytest.approx(0.35)
+        assert result.weights["rule_based"] == pytest.approx(0.40)
+        assert result.weights["statistical"] == pytest.approx(0.35)
+        assert result.weights["llm_judge"] == pytest.approx(0.25)
 
     @pytest.mark.asyncio()
     async def test_veto_caps_persona_on_forbidden_pronoun(
@@ -1148,7 +1148,7 @@ class TestConsensusAmplification:
         assert result.persona_deviation == 4
 
     def test_consensus_cap_limits_adjustment(self) -> None:
-        """補正による変動が±1に制限される."""
+        """MAX_SCORE_ADJUSTMENT=0 で consensus 補正が最終整数に影響しない."""
         pipeline = self._make_pipeline()
         # L1/L2=5.0, L3=2.0 → 大きな乖離
         l1 = self._make_layer(5.0, 5.0, 5.0)
@@ -1157,11 +1157,11 @@ class TestConsensusAmplification:
 
         result = pipeline._compute_final_score(l1, l2, l3)
 
-        # 補正なしの weighted avg ≈ 3.95 → round=4
-        # 補正ありでも ±1 制限で 3-5 の範囲
+        # weighted avg = 0.4*5 + 0.35*5 + 0.25*2 = 4.25 → round=4
+        # MAX_ADJ=0 なので consensus は最終整数に影響しない
         for field in ("temporal_consistency", "emotional_plausibility", "persona_deviation"):
             score = getattr(result, field)
-            assert 3 <= score <= 5, f"{field}={score} should be within ±1 of 4"
+            assert score == 4, f"{field}={score} should be round(weighted_avg)=4"
 
 
 # ====================================================================
@@ -1213,17 +1213,17 @@ class TestFinerEmotionalTiers:
         self.event = _make_event()
 
     def test_tiny_deviation_gets_max_bonus(self) -> None:
-        """max_dev < 0.03 → 5.0 (base 3.5 + 1.5)."""
+        """max_dev < 0.03 → 4.0 (base 2.5 + 1.5)."""
         prev = _make_state(stress=0.1, motivation=0.2, fatigue=0.1)
         curr = _make_state(stress=0.12, motivation=0.19, fatigue=0.11)
         result = self.validator.evaluate("あ" * 1000, prev, curr, self.event, {"stress": 0.02, "motivation": -0.01, "fatigue": 0.01})
-        assert result.emotional_plausibility >= 4.5
+        assert result.emotional_plausibility >= 3.5
 
     def test_large_deviation_gets_penalty(self) -> None:
-        """max_dev >= 0.12 → 3.0 (base 3.5 - 0.5)."""
+        """max_dev >= 0.12 → 1.5 (base 2.5 - 1.0)."""
         prev = _make_state(stress=0.0, motivation=0.0, fatigue=0.0)
         curr = _make_state(stress=0.2, motivation=0.0, fatigue=0.0)
         # expected=0, actual=0.2, dev=0.2 > 0.12
         result = self.validator.evaluate("あ" * 1000, prev, curr, self.event, {"stress": 0.0, "motivation": 0.0, "fatigue": 0.0})
-        assert result.emotional_plausibility <= 3.5
+        assert result.emotional_plausibility <= 2.5
         assert result.details.get("rule_max_deviation", 0) >= 0.12

@@ -24,9 +24,9 @@ class VetoCaps(BaseModel):
 class CriticWeights(BaseModel):
     """Critic 3層分解の重み設定。"""
 
-    rule_based: float = Field(default=0.35, description="Layer 1 (RuleBased) の重み")
-    statistical: float = Field(default=0.30, description="Layer 2 (Statistical) の重み")
-    llm_judge: float = Field(default=0.35, description="Layer 3 (LLMJudge) の重み")
+    rule_based: float = Field(default=0.40, description="Layer 1 (RuleBased) の重み")
+    statistical: float = Field(default=0.35, description="Layer 2 (Statistical) の重み")
+    llm_judge: float = Field(default=0.25, description="Layer 3 (LLMJudge) の重み")
 
 
 class StateTransitionConfig(BaseModel):
@@ -70,9 +70,9 @@ class CSDGConfig(BaseSettings):
     emotion_sensitivity_fatigue: float = -0.2
 
     # Critic 重み設定
-    critic_weight_rule_based: float = 0.35
-    critic_weight_statistical: float = 0.30
-    critic_weight_llm_judge: float = 0.35
+    critic_weight_rule_based: float = 0.40
+    critic_weight_statistical: float = 0.35
+    critic_weight_llm_judge: float = 0.25
 
     # 状態遷移設定
     state_transition_decay_rate: float = 0.1

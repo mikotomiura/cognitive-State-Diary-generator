@@ -347,21 +347,24 @@ def judge(score: CriticScore) -> bool:
 
 ```
 CriticPipeline:
-  Layer 1: RuleBasedValidator (決定論的)
-    - 文字数レンジチェック (800-2000文字)
-    - 禁止表現の検出 (絵文字等)
-    - 禁止一人称の検出 (僕/俺/私 等)
-    - 前日との重複率チェック (trigram overlap > 30% で減点)
-    - 感情パラメータの方向整合性
+  Layer 1: RuleBasedValidator (決定論的, 重み 0.40)
+    - 文字数レンジチェック (段階化: sweet [1000-1200] +1.0 / acceptable +0.5)
+    - わたし使用頻度 (段階化: sweet [4-6] +1.0 / acceptable [2-8] +0.5 / overuse >8 -1.0)
+    - 余韻「......」使用頻度 (段階化: sweet [2-3] +1.0 / acceptable +0.5)
+    - 前日との重複率 (段階化: <0.10 +1.0 / <0.15 +0.5 / >0.30 -1.5)
+    - 感情 deviation 5段階評価 (増強ペナルティ: >=0.12 → -1.0)
+    - 禁止表現・禁止一人称・余韻 trigram 類似度
     - has_critical_failure(): 致命的違反の検出 → Veto権発動
 
-  Layer 2: StatisticalChecker (数値的)
-    - 文体統計: 平均文長、句読点頻度、疑問文比率
-    - deviation 分析 (期待変動との乖離が大きい場合に減点)
-    - 断定文比率 (高インパクト時の過度な断定を検出)
-    - 高インパクト日文体検証 (短文連打・口語混入・哲学中断の検出)
+  Layer 2: StatisticalChecker (数値的, 重み 0.35)
+    - 平均文長 (段階化: sweet [25-30] +1.0 / acceptable [20-35] +0.5)
+    - 句読点頻度 (段階化: sweet [0.070-0.080] +1.0 / acceptable [0.060-0.090] +0.5)
+    - 文数 (段階化: sweet [35-45] +1.0 / acceptable [30-50] +0.5)
+    - 疑問文比率 (段階化: sweet [0.06-0.10] +1.0 / acceptable [0.05-0.15] +0.5)
+    - deviation 連続スケーリング (増強ペナルティ: 0.25-0.40 → -1.0)
+    - 断定文比率・高インパクト日文体検証 (短文連打・口語混入・哲学中断)
 
-  Layer 3: LLMJudge (定性評価)
+  Layer 3: LLMJudge (定性評価, 重み 0.25)
     - 従来の Prompt_Critic.md による LLM 評価
     - Layer 1/2 の結果をコンテキストとして注入
     - 逆推定一致チェック: 状態-文章の因果整合性スコア (1-5)
@@ -373,10 +376,10 @@ if rule_based_validator.has_critical_failure(result):
     # 致命的違反 → 該当軸にスコア上限キャップ適用
     final_score[axis] = min(weighted_score[axis], veto_cap[axis])
 else:
-    final_score[axis] = (
-        rule_based_score[axis] * 0.3 +
-        statistical_score[axis] * 0.2 +
-        llm_score[axis] * 0.5
+    final_score[axis] = round(
+        rule_based_score[axis] * 0.40 +
+        statistical_score[axis] * 0.35 +
+        llm_score[axis] * 0.25
     )
 # 逆推定一致スコア <= 2.0 の場合、emotional軸にもveto適用
 ```
@@ -592,7 +595,7 @@ class CSDGConfig(BaseSettings):
     emotion_sensitivity_fatigue: float = -0.2
 
     # Critic 重み / Veto / 状態遷移 (各 nested model に委譲)
-    critic_weight_rule_based: float = 0.3   # → CriticWeights
+    critic_weight_rule_based: float = 0.4   # → CriticWeights
     veto_cap_persona: float = 2.0           # → VetoCaps
     state_transition_decay_rate: float = 0.1  # → StateTransitionConfig
 
