@@ -36,11 +36,14 @@ def prompts_dir(tmp_path: Path) -> Path:
     generator = tmp_path / "Prompt_Generator.md"
     generator.write_text(
         "Write diary.\n"
+        "{critical_constraints}\n"
         "state: {current_state}\n"
         "event: {event}\n"
         "memory: {memory_buffer}\n"
         "{revision_instruction}\n"
-        "{prev_endings}",
+        "{prev_endings}\n"
+        "{prev_images}\n"
+        "{used_openings}",
         encoding="utf-8",
     )
 
@@ -424,3 +427,226 @@ class TestPrevEndings:
 
         user_prompt = mock_llm_client.generate_text.call_args.kwargs["user_prompt"]
         assert "過去の余韻" not in user_prompt
+
+
+# ====================================================================
+# 新正規化項のプロンプト注入テスト
+# ====================================================================
+
+
+class TestEndingPatternsInjection:
+    """used_ending_patterns のプロンプト注入テスト。"""
+
+    @pytest.mark.asyncio()
+    async def test_ending_patterns_injected(
+        self,
+        actor: Actor,
+        mock_llm_client: LLMClient,
+    ) -> None:
+        """used_ending_patterns が渡された場合、プロンプトに余韻パターンセクションが含まれる。"""
+        assert isinstance(mock_llm_client, AsyncMock)
+        mock_llm_client.generate_text.return_value = "日記テキスト"
+
+        event = DailyEvent(
+            day=3,
+            event_type="neutral",
+            domain="仕事",
+            description="テストイベントの説明文です",
+            emotional_impact=0.2,
+        )
+        state = CharacterState(
+            fatigue=0.1,
+            motivation=0.2,
+            stress=-0.1,
+            current_focus="x",
+            growth_theme="x",
+        )
+
+        await actor.generate_diary(
+            state,
+            event,
+            used_ending_patterns=["Day 1: 〜だろう系", "Day 2: 〜だろう系"],
+        )
+
+        user_prompt = mock_llm_client.generate_text.call_args.kwargs["user_prompt"]
+        assert "余韻パターンの指定" in user_prompt
+        assert "〜だろう系" in user_prompt
+        # ホワイトリスト方式: 使用可能パターンが提示される
+        assert "使用可能パターン" in user_prompt
+
+    @pytest.mark.asyncio()
+    async def test_no_ending_patterns_no_section(
+        self,
+        actor: Actor,
+        mock_llm_client: LLMClient,
+    ) -> None:
+        """used_ending_patterns が None の場合、セクションが含まれない。"""
+        assert isinstance(mock_llm_client, AsyncMock)
+        mock_llm_client.generate_text.return_value = "日記テキスト"
+
+        event = DailyEvent(
+            day=1,
+            event_type="neutral",
+            domain="仕事",
+            description="テストイベントの説明文です",
+            emotional_impact=0.2,
+        )
+        state = CharacterState(
+            fatigue=0.1,
+            motivation=0.2,
+            stress=-0.1,
+            current_focus="x",
+            growth_theme="x",
+        )
+
+        await actor.generate_diary(state, event, used_ending_patterns=None)
+
+        user_prompt = mock_llm_client.generate_text.call_args.kwargs["user_prompt"]
+        # Day 1 でもホワイトリストは表示される
+        assert "余韻パターンの指定" in user_prompt
+
+
+class TestThemeWordTotalsInjection:
+    """theme_word_totals のプロンプト注入テスト。"""
+
+    @pytest.mark.asyncio()
+    async def test_theme_words_injected(
+        self,
+        actor: Actor,
+        mock_llm_client: LLMClient,
+    ) -> None:
+        """theme_word_totals が渡された場合、プロンプトに主題語セクションが含まれる。"""
+        assert isinstance(mock_llm_client, AsyncMock)
+        mock_llm_client.generate_text.return_value = "日記テキスト"
+
+        event = DailyEvent(
+            day=4,
+            event_type="neutral",
+            domain="仕事",
+            description="テストイベントの説明文です",
+            emotional_impact=0.2,
+        )
+        state = CharacterState(
+            fatigue=0.1,
+            motivation=0.2,
+            stress=-0.1,
+            current_focus="x",
+            growth_theme="x",
+        )
+
+        await actor.generate_diary(
+            state,
+            event,
+            theme_word_totals={"効率": 18, "非効率": 5, "最適化": 0, "自動化": 0},
+        )
+
+        user_prompt = mock_llm_client.generate_text.call_args.kwargs["user_prompt"]
+        assert "主題語の使用状況" in user_prompt
+        assert "効率" in user_prompt
+        assert "18回使用" in user_prompt
+
+    @pytest.mark.asyncio()
+    async def test_zero_theme_words_has_per_day_limit(
+        self,
+        actor: Actor,
+        mock_llm_client: LLMClient,
+    ) -> None:
+        """theme_word_totals が全て0でも per-day 制限セクションが含まれる。"""
+        assert isinstance(mock_llm_client, AsyncMock)
+        mock_llm_client.generate_text.return_value = "日記テキスト"
+
+        event = DailyEvent(
+            day=1,
+            event_type="neutral",
+            domain="仕事",
+            description="テストイベントの説明文です",
+            emotional_impact=0.2,
+        )
+        state = CharacterState(
+            fatigue=0.1,
+            motivation=0.2,
+            stress=-0.1,
+            current_focus="x",
+            growth_theme="x",
+        )
+
+        await actor.generate_diary(
+            state,
+            event,
+            theme_word_totals={"効率": 0, "非効率": 0, "最適化": 0, "自動化": 0},
+        )
+
+        user_prompt = mock_llm_client.generate_text.call_args.kwargs["user_prompt"]
+        assert "主題語の使用状況" in user_prompt
+        assert "3回以下" in user_prompt
+        # 累計データがないため個別語の行は含まれない
+        assert "これまで" not in user_prompt
+
+
+class TestRhetoricalInjection:
+    """prev_rhetorical のプロンプト注入テスト。"""
+
+    @pytest.mark.asyncio()
+    async def test_rhetorical_injected(
+        self,
+        actor: Actor,
+        mock_llm_client: LLMClient,
+    ) -> None:
+        """prev_rhetorical が渡された場合、プロンプトに修辞疑問文セクションが含まれる。"""
+        assert isinstance(mock_llm_client, AsyncMock)
+        mock_llm_client.generate_text.return_value = "日記テキスト"
+
+        event = DailyEvent(
+            day=3,
+            event_type="neutral",
+            domain="仕事",
+            description="テストイベントの説明文です",
+            emotional_impact=0.2,
+        )
+        state = CharacterState(
+            fatigue=0.1,
+            motivation=0.2,
+            stress=-0.1,
+            current_focus="x",
+            growth_theme="x",
+        )
+
+        await actor.generate_diary(
+            state,
+            event,
+            prev_rhetorical=["効率って、何のため？", "非効率的って、何に対して？"],
+        )
+
+        user_prompt = mock_llm_client.generate_text.call_args.kwargs["user_prompt"]
+        assert "使用済み修辞疑問文" in user_prompt
+        assert "効率って、何のため？" in user_prompt
+
+    @pytest.mark.asyncio()
+    async def test_no_rhetorical_no_section(
+        self,
+        actor: Actor,
+        mock_llm_client: LLMClient,
+    ) -> None:
+        """prev_rhetorical が None の場合、セクションが含まれない。"""
+        assert isinstance(mock_llm_client, AsyncMock)
+        mock_llm_client.generate_text.return_value = "日記テキスト"
+
+        event = DailyEvent(
+            day=1,
+            event_type="neutral",
+            domain="仕事",
+            description="テストイベントの説明文です",
+            emotional_impact=0.2,
+        )
+        state = CharacterState(
+            fatigue=0.1,
+            motivation=0.2,
+            stress=-0.1,
+            current_focus="x",
+            growth_theme="x",
+        )
+
+        await actor.generate_diary(state, event, prev_rhetorical=None)
+
+        user_prompt = mock_llm_client.generate_text.call_args.kwargs["user_prompt"]
+        assert "使用済み修辞疑問文" not in user_prompt

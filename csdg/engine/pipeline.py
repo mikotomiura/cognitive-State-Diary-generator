@@ -53,28 +53,41 @@ _IMAGE_CLIP_LENGTH = 50
 
 # シーンを構成する場所・物のマーカー語
 _SCENE_MARKERS = (
+    # 場所
     "古書店",
     "電車",
     "コンビニ",
     "会議室",
     "カフェ",
-    "窓",
     "駅",
-    "道",
-    "部屋",
     "図書館",
     "公園",
-    "蛍光灯",
-    "缶コーヒー",
-    "ノート",
-    "本",
+    # 具体物 (文具・文学)
+    "万年筆",
+    "インク",
+    "背表紙",
+    "古本",
     "栞",
     "ペン",
+    "ノート",
+    "手帳",
+    "付箋",
+    # 具体物 (日常・飲食)
+    "茶碗",
+    "珈琲",
+    "缶コーヒー",
+    "マグカップ",
+    "湯気",
+    # 具体物 (環境・感覚)
+    "蛍光灯",
+    "窓",
     "キーボード",
-    "明かり",
-    "匂い",
     "自動販売機",
     "段ボール",
+    "傘",
+    "夕焼け",
+    # 場面
+    "部屋",
 )
 
 # 書き出しパターン分類用キーワード
@@ -112,6 +125,53 @@ _PHILOSOPHER_MARKERS = (
     "デリダ",
 )
 
+# 余韻末尾パターン分類用キーワード
+_ENDING_DAROO_KEYWORDS = ("だろう", "だろうか", "のだろう", "なのか", "ないのか")
+_ENDING_KAMOSHIRENAI_KEYWORDS = ("かもしれない",)
+_ENDING_INAI_KEYWORDS = ("ずにいる", "ないでいる", "ていない")
+_ENDING_TEIRU_KEYWORDS = ("ている", "ていた")
+_ENDING_ACTION_KEYWORDS = ("閉じた", "消した", "置いた", "立った", "歩いた", "座った", "開けた", "飲んだ")
+
+# 余韻パターンの具体例 (ホワイトリスト注入用)
+_ENDING_PATTERN_EXAMPLES: dict[str, str] = {
+    "〜だろう系": "「この剥げた金文字は、何年分の手のぬくもりを覚えているのだろう......」",
+    "〜かもしれない系": "「それは幻想なのかもしれない......」",
+    "〜ずにいる系": "「ペンを握ったまま、最初の一文字を書けずにいる......」",
+    "〜ている系": "「あの音が、まだ鳴っている。」",
+    "行動締め系": "「ノートを閉じて、電気を消した。」",
+    "引用系": "「『問いのない思考は情報処理だ』——その言葉が耳に残る。」",
+    "体言止め系": "「窓の外に落ちる、最後の残照。」",
+    "省略系": "「明日のわたしは、きっと......」",
+}
+
+# 書き出しパターンの具体例 (ホワイトリスト注入用)
+_OPENING_PATTERN_EXAMPLES: dict[str, str] = {
+    "比喩型": "「今日は、まるで〇〇のような一日だった。」",
+    "五感型": "「図書館のインクの匂いが、鼻の奥にまだ残っている。」",
+    "会話型": "「『で、それ実装できるの？』——那由他さんの声が、まだ耳に残っている。」",  # noqa: RUF001
+    "問い型": "「効率って、いつから美徳になったんだろう。」",
+    "断片型": "「会議。蛍光灯。スライド。沈黙。」",
+    "回想型": "「大学院の研究室には、いつも珈琲の匂いが漂っていた。」",
+}
+
+# 主題語の追跡対象と閾値
+_THEME_WORD_MARKERS = ("効率", "非効率", "最適化", "自動化")
+_THEME_WORD_SOFT_LIMIT = 10
+_THEME_WORD_HARD_LIMIT = 18
+_THEME_WORD_PER_DAY_LIMIT = 3
+
+# 修辞疑問文の抽出パターン
+_RHETORICAL_PATTERN = re.compile(
+    r"[^。\n]{5,30}(?:って[、,]?\s*何|とは[、,]?\s*何|って[、,]?\s*誰|"
+    r"って[、,]?\s*どう|のため[？?]|に対して[？?]|"  # noqa: RUF001
+    r"のだろうか|なのか[。？?、,]|ないのか[。？?、,])"  # noqa: RUF001
+)
+_MAX_PREV_RHETORICAL = 5
+
+# シーンマーカーの出現日数閾値
+_SCENE_MARKER_SOFT_DAYS = 2
+_SCENE_MARKER_HARD_DAYS = 3
+
 
 def _extract_key_images(diary_text: str, max_images: int = _MAX_PREV_IMAGES) -> list[str]:
     """日記テキストからシーンを構成するキーフレーズを抽出する。
@@ -148,13 +208,22 @@ def _detect_opening_pattern(diary_text: str) -> str:
     Prompt_Generator.md で定義された6パターン (比喩型/五感型/会話型/問い型/断片型/回想型)
     のいずれかに分類する。判定できない場合は「その他」を返す。
 
+    Markdown 見出し行 (``#`` で始まる行) と空行はスキップし、
+    実質的な本文の冒頭行を判定対象にする。
+
     Args:
         diary_text: 日記テキスト全文。
 
     Returns:
         パターン名の文字列。
     """
-    first_line = diary_text.strip().split("\n")[0] if diary_text.strip() else ""
+    first_line = ""
+    for line in diary_text.strip().split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        first_line = stripped
+        break
     head = first_line[:80]
 
     if any(kw in head for kw in _OPENING_METAPHOR_KEYWORDS):
@@ -215,6 +284,184 @@ def _extract_used_philosophers(diary_text: str) -> list[str]:
         言及された哲学者名のリスト。
     """
     return [p for p in _PHILOSOPHER_MARKERS if p in diary_text]
+
+
+def _detect_ending_pattern(diary_text: str) -> str:
+    """余韻の末尾構文パターンを分類する。
+
+    末尾段落を解析し、以下の優先順位で分類する:
+    「〜だろう系」「〜かもしれない系」「〜ずにいる系」「〜ている系」
+    「行動締め系」「引用系」「体言止め系」「省略系」「その他」
+
+    Args:
+        diary_text: 日記テキスト全文。
+
+    Returns:
+        パターン名の文字列。
+    """
+    ending = _extract_ending(diary_text)
+    if not ending:
+        return "その他"
+
+    tail = ending[-30:]
+
+    # 文法パターン (優先度高: 既存3分類 — かもしれない を だろう より先に判定)
+    if any(kw in tail for kw in _ENDING_KAMOSHIRENAI_KEYWORDS):
+        return "〜かもしれない系"
+    if any(kw in tail for kw in _ENDING_DAROO_KEYWORDS):
+        return "〜だろう系"
+    if any(kw in tail for kw in _ENDING_INAI_KEYWORDS):
+        return "〜ずにいる系"
+
+    # ~ている系: 末尾が「ている」「ていた」で終わる (「ていない」は上で捕捉済み)
+    clean_tail = re.sub(r"[。.…\s]+$", "", tail)
+    if any(clean_tail.endswith(kw) for kw in _ENDING_TEIRU_KEYWORDS):
+        return "〜ている系"
+
+    # 行動締め系: 末尾に動作動詞を含む
+    if any(kw in tail for kw in _ENDING_ACTION_KEYWORDS):
+        return "行動締め系"
+
+    # 引用系: 末尾段落に「」か『』を含む
+    if "「" in ending or "『" in ending:
+        return "引用系"
+
+    # 体言止め系: 末尾の文が短く (30文字以下)、漢字/カタカナ2文字以上で終わる
+    sentences = [s.strip() for s in re.split(r"[。]", ending) if s.strip()]
+    last_sentence = sentences[-1] if sentences else ending
+    clean_last = re.sub(r"[。.…\s]+$", "", last_sentence)
+    if len(clean_last) <= 30 and clean_last and re.search(r"[\u4e00-\u9fff\u30a0-\u30ff]{2,}$", clean_last):
+        return "体言止め系"
+
+    # 省略系: 末尾が「......」で終わる (他パターンに該当しない場合)
+    if ending.rstrip().endswith("......"):
+        return "省略系"
+
+    return "その他"
+
+
+def _count_theme_words(diary_text: str) -> dict[str, int]:
+    """日記テキスト中の主題語の出現回数をカウントする。
+
+    Args:
+        diary_text: 日記テキスト全文。
+
+    Returns:
+        主題語をキー、出現回数を値とする辞書。
+    """
+    return {word: diary_text.count(word) for word in _THEME_WORD_MARKERS}
+
+
+def _extract_rhetorical_questions(
+    diary_text: str,
+    max_questions: int = _MAX_PREV_RHETORICAL,
+) -> list[str]:
+    """日記テキストから修辞疑問文を抽出する。
+
+    「〜って、何に対して?」「〜のため?」等の問いかけパターンを検出し、
+    Day 間で蓄積することで反復を防止する。
+
+    Args:
+        diary_text: 日記テキスト全文。
+        max_questions: 返す修辞疑問文の最大数。
+
+    Returns:
+        抽出された修辞疑問文のリスト (各50文字以内)。
+    """
+    matches = _RHETORICAL_PATTERN.findall(diary_text)
+    return [m.strip()[:50] for m in matches[:max_questions]]
+
+
+def _detect_scene_markers(diary_text: str) -> set[str]:
+    """日記テキストに出現するシーンマーカー語を検出する。
+
+    Args:
+        diary_text: 日記テキスト全文。
+
+    Returns:
+        出現したマーカー語の集合。
+    """
+    return {marker for marker in _SCENE_MARKERS if marker in diary_text}
+
+
+def _validate_structural_constraints(
+    diary_text: str,
+    used_ending_patterns: list[str],
+    used_structures: list[str],
+    used_openings: list[str],
+    theme_word_totals: dict[str, int],
+) -> list[str]:
+    """生成された日記の構造的制約違反を検出する。
+
+    Critic (Phase 3) が検査しない構造的制約を軽量にバリデーションし、
+    違反時の具体的な修正指示を返す。
+
+    Args:
+        diary_text: 生成された日記テキスト。
+        used_ending_patterns: 過去の余韻パターンリスト。
+        used_structures: 過去の場面構造パターンリスト。
+        used_openings: 過去の書き出しパターンリスト。
+        theme_word_totals: 主題語の累計使用回数。
+
+    Returns:
+        違反メッセージのリスト。空の場合は制約をすべて満たしている。
+    """
+    violations: list[str] = []
+
+    # 1. 余韻パターン上限チェック (2回まで)
+    ending_pattern = _detect_ending_pattern(diary_text)
+    ep_counts: dict[str, int] = {}
+    for p in used_ending_patterns:
+        if ": " in p:
+            name = p.split(": ", 1)[1]
+            ep_counts[name] = ep_counts.get(name, 0) + 1
+    if ending_pattern != "その他" and ep_counts.get(ending_pattern, 0) >= 2:
+        available = [n for n in _ENDING_PATTERN_EXAMPLES if ep_counts.get(n, 0) < 2 and n != ending_pattern]
+        alt = f" 代わりに{'か'.join(available[:3])}を使ってください。" if available else ""
+        violations.append(f"余韻が「{ending_pattern}」ですが既に2回使用済みです。{alt}")
+
+    # 2. 場面構造の連続使用チェック
+    structure = _detect_structure_pattern(diary_text)
+    if used_structures:
+        last = used_structures[-1]
+        prev_structure = last.split(": ", 1)[1] if ": " in last else ""
+        if structure == prev_structure and structure != "その他":
+            violations.append(f"場面構造が前日と同じ「{structure}」です。異なる構造に変更してください。")
+
+    # 3. 場面構造の上限チェック
+    st_counts: dict[str, int] = {}
+    for s in used_structures:
+        if ": " in s:
+            name = s.split(": ", 1)[1]
+            st_counts[name] = st_counts.get(name, 0) + 1
+    pattern_limits = {"古書店型": 2, "帰路型": 2}
+    st_limit = pattern_limits.get(structure, 3)
+    if structure != "その他" and st_counts.get(structure, 0) >= st_limit:
+        violations.append(f"「{structure}」は既に{st_counts[structure]}回使用され上限({st_limit}回)到達です。")
+
+    # 4. 主題語の per-day 上限チェック
+    day_counts = _count_theme_words(diary_text)
+    for word, count in day_counts.items():
+        if count > _THEME_WORD_PER_DAY_LIMIT:
+            violations.append(
+                f"「{word}」が{count}回使用 (上限{_THEME_WORD_PER_DAY_LIMIT}回/日)。代替表現に言い換えてください。"
+            )
+
+    # 5. 書き出しパターン上限チェック
+    opening = _detect_opening_pattern(diary_text)
+    op_counts: dict[str, int] = {}
+    for o in used_openings:
+        if ": " in o:
+            name = o.split(": ", 1)[1]
+            op_counts[name] = op_counts.get(name, 0) + 1
+    opening_limits: dict[str, int] = {"比喩型": 2}
+    op_limit = opening_limits.get(opening, 3)
+    if opening != "その他" and op_counts.get(opening, 0) >= op_limit:
+        violations.append(
+            f"書き出し「{opening}」は既に{op_counts[opening]}回使用 (上限{op_limit}回)。別パターンにしてください。"
+        )
+
+    return violations
 
 
 def _sanitize_revision(instruction: str | None) -> str | None:
@@ -325,6 +572,10 @@ class PipelineRunner:
         used_openings: list[str] = []
         used_structures: list[str] = []
         used_philosophers: dict[str, int] = {}
+        used_ending_patterns: list[str] = []
+        theme_word_totals: dict[str, int] = {}
+        prev_rhetorical: list[str] = []
+        scene_marker_days: dict[str, int] = {}
 
         for event in events:
             day = event.day
@@ -343,6 +594,10 @@ class PipelineRunner:
                         used_openings=list(used_openings),
                         used_structures=list(used_structures),
                         used_philosophers=dict(used_philosophers),
+                        used_ending_patterns=list(used_ending_patterns),
+                        theme_word_totals=dict(theme_word_totals),
+                        prev_rhetorical=list(prev_rhetorical),
+                        scene_marker_days=dict(scene_marker_days),
                     )
                     records.append(record)
                     total_retries += record.retry_count
@@ -371,6 +626,21 @@ class PipelineRunner:
                     # 哲学者引用の蓄積
                     for phil in _extract_used_philosophers(record.diary_text):
                         used_philosophers[phil] = used_philosophers.get(phil, 0) + 1
+                    # 余韻構文パターンの蓄積
+                    ending_pattern = _detect_ending_pattern(record.diary_text)
+                    used_ending_patterns.append(f"Day {day}: {ending_pattern}")
+                    # 主題語の累計カウント
+                    day_counts = _count_theme_words(record.diary_text)
+                    for word, count in day_counts.items():
+                        theme_word_totals[word] = theme_word_totals.get(word, 0) + count
+                    # 修辞疑問文の蓄積
+                    new_rhetoricals = _extract_rhetorical_questions(record.diary_text)
+                    prev_rhetorical.extend(new_rhetoricals)
+                    prev_rhetorical = prev_rhetorical[-_MAX_PREV_RHETORICAL:]
+                    # シーンマーカーの出現日数を更新
+                    day_markers = _detect_scene_markers(record.diary_text)
+                    for marker in day_markers:
+                        scene_marker_days[marker] = scene_marker_days.get(marker, 0) + 1
                     consecutive_failures = 0
                     day_success = True
                     break
@@ -446,6 +716,10 @@ class PipelineRunner:
         used_openings: list[str] | None = None,
         used_structures: list[str] | None = None,
         used_philosophers: dict[str, int] | None = None,
+        used_ending_patterns: list[str] | None = None,
+        theme_word_totals: dict[str, int] | None = None,
+        prev_rhetorical: list[str] | None = None,
+        scene_marker_days: dict[str, int] | None = None,
     ) -> GenerationRecord:
         """1Dayのパイプラインを実行する。
 
@@ -462,6 +736,10 @@ class PipelineRunner:
             used_openings: 過去の日記で使用された書き出しパターン (反復回避用)。
             used_structures: 過去の日記で使用された場面構造パターン (反復回避用)。
             used_philosophers: 哲学者・思想家の使用回数辞書 (反復回避用)。
+            used_ending_patterns: 過去の日記で使用された余韻構文パターン (反復回避用)。
+            theme_word_totals: 主題語の累計使用回数 (頻度制限用)。
+            prev_rhetorical: 過去の日記で使用された修辞疑問文 (反復回避用)。
+            scene_marker_days: シーンマーカーの出現日数 (反復回避用)。
 
         Returns:
             1Day分の生成記録。
@@ -517,8 +795,15 @@ class PipelineRunner:
             self._critic_log.get_all_low_score_patterns(threshold=3.0, top_k=5),
         )
 
+        is_high_impact = abs(event.emotional_impact) > 0.7
+        structural_retry_used = False
+
         for attempt_idx in range(self._config.max_retries):
             temperature = schedule[attempt_idx] if attempt_idx < len(schedule) else schedule[-1]
+
+            # 高インパクト日で persona_deviation が低い場合、温度を下げない
+            if is_high_impact and candidates and candidates[-1].critic_score.persona_deviation < 3:
+                temperature = max(temperature, self._config.initial_temperature)
 
             # Phase 2: Content Generation (過去の失敗パターンを注入)
             combined_instruction = revision_instruction or ""
@@ -537,10 +822,30 @@ class PipelineRunner:
                 used_openings=used_openings,
                 used_structures=used_structures,
                 used_philosophers=used_philosophers,
+                used_ending_patterns=used_ending_patterns,
+                theme_word_totals=theme_word_totals,
+                prev_rhetorical=prev_rhetorical,
+                scene_marker_days=scene_marker_days,
             )
             phase2_ms = int((time.monotonic() - phase2_start) * 1000)
             phase2_total_ms += phase2_ms
             logger.info("[Day %d] Phase 2: Content Generation ... OK (%.1fs)", day, phase2_ms / 1000)
+
+            # 構造的制約バリデーション (Critic 前の軽量チェック)
+            structural_violations = _validate_structural_constraints(
+                diary_text,
+                used_ending_patterns or [],
+                used_structures or [],
+                used_openings or [],
+                theme_word_totals or {},
+            )
+            if structural_violations:
+                logger.warning(
+                    "[Day %d] 構造的制約違反 %d件: %s",
+                    day,
+                    len(structural_violations),
+                    "; ".join(structural_violations),
+                )
 
             # Phase 3: Critic Evaluation (3層詳細結果を取得)
             phase3_start = time.monotonic()
@@ -569,14 +874,40 @@ class PipelineRunner:
             candidates.append(candidate)
 
             if judge(critic_score):
-                logger.info(
-                    "[Day %d] Phase 3: Critic Evaluation ... Pass (score: %d/%d/%d) (%.1fs)",
-                    day,
-                    critic_score.temporal_consistency,
-                    critic_score.emotional_plausibility,
-                    critic_score.persona_deviation,
-                    phase3_ms / 1000,
-                )
+                # 場面構造に関する違反のみを再試行トリガーとする
+                structure_violations_only = [v for v in structural_violations if "場面構造" in v]
+                if structure_violations_only and not structural_retry_used:
+                    structural_retry_used = True
+                    violation_text = "\n".join(f"- {v}" for v in structure_violations_only)
+                    revision_instruction = _sanitize_revision(f"構造的制約違反:\n{violation_text}")
+                    logger.info(
+                        "[Day %d] Critic Pass (score: %d/%d/%d) + structure violation -> 1回限定再試行",
+                        day,
+                        critic_score.temporal_consistency,
+                        critic_score.emotional_plausibility,
+                        critic_score.persona_deviation,
+                    )
+                    continue
+
+                if structural_violations:
+                    logger.info(
+                        "[Day %d] Phase 3: Critic Pass (score: %d/%d/%d) with %d warning(s) (%.1fs)",
+                        day,
+                        critic_score.temporal_consistency,
+                        critic_score.emotional_plausibility,
+                        critic_score.persona_deviation,
+                        len(structural_violations),
+                        phase3_ms / 1000,
+                    )
+                else:
+                    logger.info(
+                        "[Day %d] Phase 3: Critic Evaluation ... Pass (score: %d/%d/%d) (%.1fs)",
+                        day,
+                        critic_score.temporal_consistency,
+                        critic_score.emotional_plausibility,
+                        critic_score.persona_deviation,
+                        phase3_ms / 1000,
+                    )
                 final_diary = diary_text
                 break
 
@@ -589,8 +920,16 @@ class PipelineRunner:
                 attempt_idx + 1,
                 self._config.max_retries,
             )
-            revision_instruction = critic_score.revision_instruction
-            revision_instruction = _sanitize_revision(revision_instruction)
+            # Critic のリビジョン指示と構造違反フィードバックを合流
+            revision_parts: list[str] = []
+            if critic_score.revision_instruction:
+                revision_parts.append(critic_score.revision_instruction)
+            if structural_violations:
+                violation_text = "\n".join(f"- {v}" for v in structural_violations)
+                revision_parts.append(f"構造的制約違反:\n{violation_text}")
+            revision_instruction = _sanitize_revision(
+                "\n\n".join(revision_parts) if revision_parts else None,
+            )
         else:
             # All retries exhausted → Best-of-N
             best = self._select_best_candidate(candidates)

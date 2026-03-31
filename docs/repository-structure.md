@@ -259,7 +259,7 @@ development-guidelines.md    ← 「どう運用するか」
 | `__init__.py` | サブパッケージ初期化 | なし | — |
 | `actor.py` | Phase 1 (状態遷移) と Phase 2 (コンテンツ生成) の実行。プロンプト読み込み・展開 | `schemas`, `llm_client`, `config` | `test_actor.py` |
 | `critic.py` | Phase 3 (評価) の実行。`expected_delta` / `deviation` の算出、Pass/Reject判定 | `schemas`, `llm_client`, `config` | `test_critic.py` |
-| `pipeline.py` | Day単位のループ、リトライ制御、Self-Healing、memory_buffer管理、ログ収集 | `actor`, `critic`, `schemas`, `config` | `test_pipeline.py` |
+| `pipeline.py` | Day単位のループ、リトライ制御、Self-Healing、memory_buffer管理、ログ収集、正規化項の検出・蓄積 (9種)、構造的制約バリデーション (`_validate_structural_constraints`) | `actor`, `critic`, `schemas`, `config` | `test_pipeline.py` |
 | `llm_client.py` | LLM API呼び出しの抽象クラス `LLMClient` と Anthropic Claude 実装 `AnthropicClient` | `anthropic`, `pydantic` | `test_actor.py`(モック) |
 
 ### 4.4 モジュール間の依存関係図
@@ -313,7 +313,7 @@ main.py
 |---|---|---|---|
 | `System_Persona.md` | キャラクターの不変ルール。全PhaseのSystemプロンプトとして使用 | 全Phase | なし（静的） |
 | `Prompt_StateUpdate.md` | 感情推移の計算ルール | Phase 1 | `{previous_state}`, `{event}`, `{memory_buffer}` |
-| `Prompt_Generator.md` | ブログ記事の構成・感情の言語化ルール | Phase 2 | `{current_state}`, `{event}`, `{memory_buffer}`, `{revision_instruction}`, `{prev_endings}`, `{prev_images}`, `{used_openings}` |
+| `Prompt_Generator.md` | ブログ記事の構成・感情の言語化ルール | Phase 2 | `{critical_constraints}`, `{current_state}`, `{event}`, `{memory_buffer}`, `{revision_instruction}`, `{prev_endings}`, `{prev_images}`, `{used_openings}` |
 | `Prompt_Critic.md` | 評価基準・採点基準（1-5スコアの定義） | Phase 3 | `{diary_text}`, `{current_state}`, `{event}`, `{expected_delta}`, `{deviation}` |
 | `Prompt_MemoryExtract.md` | 長期記憶の信念・テーマ抽出 | メモリ更新時 | `{evicted_entries}`, `{current_beliefs}`, `{current_themes}` |
 | `System_MemoryManager.md` | メモリ管理システムプロンプト | メモリ更新時 | なし（静的） |

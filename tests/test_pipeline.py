@@ -20,12 +20,17 @@ from csdg.engine.critic import Critic, judge
 from csdg.engine.pipeline import (
     PipelineRunner,
     RetryCandidate,
+    _count_theme_words,
+    _detect_ending_pattern,
     _detect_opening_pattern,
+    _detect_scene_markers,
     _detect_structure_pattern,
     _extract_ending,
     _extract_key_images,
+    _extract_rhetorical_questions,
     _extract_used_philosophers,
     _sanitize_revision,
+    _validate_structural_constraints,
 )
 from csdg.schemas import CharacterState, CriticResult, CriticScore, DailyEvent, LayerScore
 
@@ -1073,6 +1078,21 @@ class TestDetectOpeningPattern:
         result = _detect_opening_pattern("効率って、いつから美徳になったんだろうか")
         assert result == "問い型"
 
+    def test_skips_date_heading(self) -> None:
+        """日付見出し行をスキップして実際の書き出しを判定する。"""
+        text = "# 2026年12月2日\n\n今日は、まるでベルトコンベアの上で立ち尽くしているような一日だった。"
+        assert _detect_opening_pattern(text) == "比喩型"
+
+    def test_skips_markdown_heading(self) -> None:
+        """Markdown見出し行をスキップする。"""
+        text = "## 日記\n\n「で、それ実装できるの？」——那由他さんの声が響いた。"
+        assert _detect_opening_pattern(text) == "会話型"
+
+    def test_skips_empty_lines_after_heading(self) -> None:
+        """見出し後の空行もスキップする。"""
+        text = "# タイトル\n\n\n図書館のインクの匂いが、鼻の奥にまだ残っている。"
+        assert _detect_opening_pattern(text) == "五感型"
+
 
 # ====================================================================
 # _detect_structure_pattern: 場面構造パターンの分類
@@ -1142,3 +1162,410 @@ class TestExtractUsedPhilosophers:
     def test_empty_text(self) -> None:
         """空テキスト。"""
         assert _extract_used_philosophers("") == []
+
+
+# ====================================================================
+# 余韻末尾パターン分類 (_detect_ending_pattern)
+# ====================================================================
+
+
+class TestDetectEndingPattern:
+    """_detect_ending_pattern のテスト。"""
+
+    def test_daroo_pattern(self) -> None:
+        """「〜だろう」系を検出する。"""
+        text = "段落1。\n\nこの本は何を知っているのだろう......"
+        assert _detect_ending_pattern(text) == "〜だろう系"
+
+    def test_darouka_pattern(self) -> None:
+        """「〜だろうか」系を検出する。"""
+        text = "段落1。\n\nそれは果たして正しいのだろうか。"
+        assert _detect_ending_pattern(text) == "〜だろう系"
+
+    def test_kamoshirenai_pattern(self) -> None:
+        """「〜かもしれない」系を検出する。"""
+        text = "段落1。\n\nそれは幻想なのかもしれない......"
+        assert _detect_ending_pattern(text) == "〜かもしれない系"
+
+    def test_zuniiiru_pattern(self) -> None:
+        """「〜ずにいる」系を検出する。"""
+        text = "段落1。\n\nペンを握ったまま、最初の一文字を書けずにいる......"
+        assert _detect_ending_pattern(text) == "〜ずにいる系"
+
+    def test_teinai_pattern(self) -> None:
+        """「〜ていない」系を検出する。"""
+        text = "段落1。\n\nわたしはまだ、その答えを見つけていない......"
+        assert _detect_ending_pattern(text) == "〜ずにいる系"
+
+    def test_generic_iru_returns_ellipsis(self) -> None:
+        """汎用的な「〜いる」+ 「......」は省略系を返す。"""
+        text = "段落1。\n\nわたしはまだ、図書館にいる......"
+        assert _detect_ending_pattern(text) == "省略系"
+
+    def test_teita_returns_teiru(self) -> None:
+        """「〜ていた」は〜ている系を返す。"""
+        text = "段落1。\n\n窓の外に、雨が降っていた。"
+        assert _detect_ending_pattern(text) == "〜ている系"
+
+    def test_other_pattern(self) -> None:
+        """その他パターンを返す。"""
+        text = "段落1。\n\nゆっくりと深呼吸をした。"
+        assert _detect_ending_pattern(text) == "その他"
+
+    def test_empty_text(self) -> None:
+        """空テキストはその他を返す。"""
+        assert _detect_ending_pattern("") == "その他"
+
+
+# ====================================================================
+# 主題語カウント (_count_theme_words)
+# ====================================================================
+
+
+class TestCountThemeWords:
+    """_count_theme_words のテスト。"""
+
+    def test_counts_correctly(self) -> None:
+        """主題語が正しくカウントされる。"""
+        text = "効率化を求める社会。最適化の波。自動化の未来。"
+        counts = _count_theme_words(text)
+        assert counts["効率"] == 1
+        assert counts["最適化"] == 1
+        assert counts["自動化"] == 1
+
+    def test_multiple_occurrences(self) -> None:
+        """同一語の複数出現をカウントする。"""
+        text = "効率と効率の対立。効率という名の呪縛。"
+        counts = _count_theme_words(text)
+        assert counts["効率"] == 3
+
+    def test_empty_text(self) -> None:
+        """空テキストは全て0。"""
+        counts = _count_theme_words("")
+        assert all(v == 0 for v in counts.values())
+
+    def test_no_theme_words(self) -> None:
+        """主題語が含まれないテキスト。"""
+        text = "今日は穏やかな一日だった。"
+        counts = _count_theme_words(text)
+        assert all(v == 0 for v in counts.values())
+
+
+# ====================================================================
+# 修辞疑問文抽出 (_extract_rhetorical_questions)
+# ====================================================================
+
+
+class TestExtractRhetoricalQuestions:
+    """_extract_rhetorical_questions のテスト。"""
+
+    def test_extracts_nani_question(self) -> None:
+        """「〜って、何」パターンを抽出する。"""
+        text = "効率って、何のため？　その問いが頭の片隅で響く。"
+        questions = _extract_rhetorical_questions(text)
+        assert len(questions) >= 1
+
+    def test_extracts_nitaishite_question(self) -> None:
+        """「〜に対して？」パターンを抽出する。"""
+        text = "非効率的って、何に対して？ 利益に対して？ 時間に対して？"
+        questions = _extract_rhetorical_questions(text)
+        assert len(questions) >= 1
+
+    def test_max_questions_limit(self) -> None:
+        """最大数を超えない。"""
+        text = (
+            "効率って、何のため？ "
+            "速さって、何のため？ "
+            "正確さって、何のため？ "
+            "利便性って、何のため？ "
+            "進歩って、何のため？ "
+            "成長って、何のため？ "
+        )
+        questions = _extract_rhetorical_questions(text, max_questions=3)
+        assert len(questions) <= 3
+
+    def test_empty_text(self) -> None:
+        """空テキストは空リスト。"""
+        assert _extract_rhetorical_questions("") == []
+
+    def test_no_rhetorical(self) -> None:
+        """修辞疑問文がないテキスト。"""
+        text = "今日も穏やかな一日が過ぎていった。"
+        assert _extract_rhetorical_questions(text) == []
+
+    def test_truncates_to_50_chars(self) -> None:
+        """50文字を超える修辞疑問文が切り詰められる。"""
+        text = "あ" * 40 + "って、何のため？"
+        questions = _extract_rhetorical_questions(text)
+        if questions:
+            assert all(len(q) <= 50 for q in questions)
+
+    def test_darouka_pattern(self) -> None:
+        """「〜のだろうか」パターンを抽出する。"""
+        text = "この二つは本当に対立するものなのだろうか。"
+        questions = _extract_rhetorical_questions(text)
+        assert len(questions) >= 1
+
+    def test_nanoka_pattern(self) -> None:
+        """「〜なのか」パターンを抽出する。"""
+        text = "迷いのない思考って、それ本当に思考なのか。"
+        questions = _extract_rhetorical_questions(text)
+        assert len(questions) >= 1
+
+
+# ====================================================================
+# シーンマーカー検出 (_detect_scene_markers)
+# ====================================================================
+
+
+class TestDetectSceneMarkers:
+    """_detect_scene_markers のテスト。"""
+
+    def test_detects_single_marker(self) -> None:
+        """単一マーカーを検出する。"""
+        text = "蛍光灯の下で、わたしは一冊の本を読んでいた。"
+        markers = _detect_scene_markers(text)
+        assert "蛍光灯" in markers
+
+    def test_detects_multiple_markers(self) -> None:
+        """複数マーカーを検出する。"""
+        text = "古書店の蛍光灯の下で、キーボードを叩いていた。"
+        markers = _detect_scene_markers(text)
+        assert "古書店" in markers
+        assert "蛍光灯" in markers
+        assert "キーボード" in markers
+
+    def test_no_markers(self) -> None:
+        """マーカーなし。"""
+        text = "今日は穏やかな一日だった。"
+        markers = _detect_scene_markers(text)
+        assert len(markers) == 0
+
+    def test_empty_text(self) -> None:
+        """空テキスト。"""
+        assert _detect_scene_markers("") == set()
+
+    def test_returns_set(self) -> None:
+        """重複なしの集合を返す。"""
+        text = "蛍光灯が照らす。蛍光灯の光。また蛍光灯。"
+        markers = _detect_scene_markers(text)
+        assert isinstance(markers, set)
+        assert markers == {"蛍光灯"}
+
+
+# ====================================================================
+# _SCENE_MARKERS の整合性テスト
+# ====================================================================
+
+
+class TestSceneMarkersIntegrity:
+    """_SCENE_MARKERS の弁別力テスト。"""
+
+    def test_removed_markers_not_present(self) -> None:
+        """除外されたマーカーが含まれていないこと。"""
+        from csdg.engine.pipeline import _SCENE_MARKERS
+
+        removed = ("本", "道", "匂い", "明かり")
+        for marker in removed:
+            assert marker not in _SCENE_MARKERS, f"除外されるべきマーカー '{marker}' が残っている"
+
+    def test_added_markers_present(self) -> None:
+        """追加されたマーカーが含まれていること。"""
+        from csdg.engine.pipeline import _SCENE_MARKERS
+
+        added = ("万年筆", "茶碗", "珈琲", "インク", "背表紙", "付箋", "マグカップ", "手帳", "傘", "湯気", "古本", "夕焼け")
+        for marker in added:
+            assert marker in _SCENE_MARKERS, f"追加されるべきマーカー '{marker}' が存在しない"
+
+    def test_no_low_discriminability_single_char(self) -> None:
+        """弁別力不足の1文字マーカー (本/道) が含まれないこと。"""
+        from csdg.engine.pipeline import _SCENE_MARKERS
+
+        low_discriminability = {"本", "道"}
+        for marker in low_discriminability:
+            assert marker not in _SCENE_MARKERS, f"弁別力不足のマーカー '{marker}' が残っている"
+
+
+# ====================================================================
+# _extract_key_images の弁別力テスト
+# ====================================================================
+
+
+class TestExtractKeyImagesBenbelryoku:
+    """_extract_key_images の誤検出防止テスト。"""
+
+    def test_hon_false_positive_avoided(self) -> None:
+        """「本当に」を含むテキストで「本」が検出されないこと。"""
+        text = "本当にそうなのか、わたしにはわからない。本質的な問いだと思った。"
+        images = _extract_key_images(text)
+        assert not any("本当" in img or "本質" in img for img in images) or len(images) == 0
+
+    def test_michi_false_positive_avoided(self) -> None:
+        """「道具」「道理」を含むテキストで「道」が検出されないこと。"""
+        text = "道具を揃えることが道理だと思った。"
+        images = _extract_key_images(text)
+        assert len(images) == 0
+
+    def test_mannenhitsu_ink_detected(self) -> None:
+        """「万年筆のインクが乾いていた」で「万年筆」「インク」が検出されること。"""
+        text = "万年筆のインクが乾いていた。ノートを開いて書き始める。"
+        images = _extract_key_images(text)
+        marker_words = " ".join(images)
+        assert "万年筆" in marker_words
+        assert "インク" in marker_words
+
+    def test_furuhon_sehyoushi_detected(self) -> None:
+        """「古本の背表紙を撫でた」で「古本」「背表紙」が検出されること。"""
+        text = "古本の背表紙を撫でた。栞が挟んであった。"
+        images = _extract_key_images(text)
+        marker_words = " ".join(images)
+        assert "古本" in marker_words
+        assert "背表紙" in marker_words
+
+
+# ====================================================================
+# 余韻分類の新パターンテスト
+# ====================================================================
+
+
+class TestDetectEndingPatternExpanded:
+    """_detect_ending_pattern の拡張パターンテスト。"""
+
+    def test_teiru_pattern(self) -> None:
+        """「〜ている」系を検出する。"""
+        text = "段落1。\n\nあの音が、まだ鳴っている。"
+        assert _detect_ending_pattern(text) == "〜ている系"
+
+    def test_teita_pattern(self) -> None:
+        """「〜ていた」系を検出する。"""
+        text = "段落1。\n\n窓の外では雨が降っていた。"
+        assert _detect_ending_pattern(text) == "〜ている系"
+
+    def test_action_pattern(self) -> None:
+        """行動締め系を検出する。"""
+        text = "段落1。\n\nノートを閉じて、電気を消した。"
+        assert _detect_ending_pattern(text) == "行動締め系"
+
+    def test_quote_pattern(self) -> None:
+        """引用系を検出する。"""
+        text = "段落1。\n\n『問いのない思考は情報処理だ』——その言葉が耳に残る。"
+        assert _detect_ending_pattern(text) == "引用系"
+
+    def test_taigendome_pattern(self) -> None:
+        """体言止め系を検出する。"""
+        text = "段落1。\n\n窓の外に落ちる、最後の残照。"
+        assert _detect_ending_pattern(text) == "体言止め系"
+
+    def test_ellipsis_pattern(self) -> None:
+        """省略系を検出する。"""
+        text = "段落1。\n\n明日のわたしは、きっと......"
+        assert _detect_ending_pattern(text) == "省略系"
+
+    def test_other_remains(self) -> None:
+        """既存の「その他」判定が維持される。"""
+        text = "段落1。\n\n今日はここまでにしておく。"
+        assert _detect_ending_pattern(text) == "その他"
+
+    def test_existing_daroo_preserved(self) -> None:
+        """既存の「〜だろう系」判定が維持される。"""
+        text = "段落1。\n\nこの本は何を知っているのだろう......"
+        assert _detect_ending_pattern(text) == "〜だろう系"
+
+    def test_existing_zuniiiru_preserved(self) -> None:
+        """既存の「〜ずにいる系」判定が維持される。"""
+        text = "段落1。\n\nペンを握ったまま、最初の一文字を書けずにいる......"
+        assert _detect_ending_pattern(text) == "〜ずにいる系"
+
+
+# ====================================================================
+# 構造的制約バリデーション (_validate_structural_constraints)
+# ====================================================================
+
+
+class TestValidateStructuralConstraints:
+    """_validate_structural_constraints のテスト。"""
+
+    def test_no_violations(self) -> None:
+        """制約違反がない場合は空リストを返す。"""
+        text = "段落1。\n\nそれは幻想なのかもしれない......"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=["Day 1: 〜だろう系"],
+            used_structures=["Day 1: 古書店型"],
+            used_openings=["Day 1: 比喩型"],
+            theme_word_totals={"効率": 2},
+        )
+        assert violations == []
+
+    def test_ending_pattern_violation(self) -> None:
+        """余韻パターンが上限 (2回) に達している場合に違反を検出する。"""
+        text = "段落1。\n\nこの本は何を知っているのだろう......"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=["Day 1: 〜だろう系", "Day 2: 〜だろう系"],
+            used_structures=[],
+            used_openings=[],
+            theme_word_totals={},
+        )
+        assert len(violations) == 1
+        assert "〜だろう系" in violations[0]
+
+    def test_consecutive_structure_violation(self) -> None:
+        """前日と同じ場面構造パターンで違反を検出する。"""
+        text = "会議室で蛍光灯の下、議論が続いた。"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=[],
+            used_structures=["Day 1: 会議型"],
+            used_openings=[],
+            theme_word_totals={},
+        )
+        assert any("前日と同じ" in v for v in violations)
+
+    def test_structure_limit_violation(self) -> None:
+        """場面構造パターンが上限に達している場合に違反を検出する。"""
+        text = "会議室で蛍光灯の下、議論が続いた。"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=[],
+            used_structures=["Day 1: 会議型", "Day 2: 古書店型", "Day 3: 会議型", "Day 4: その他", "Day 5: 会議型"],
+            used_openings=[],
+            theme_word_totals={},
+        )
+        assert any("上限" in v and "会議型" in v for v in violations)
+
+    def test_theme_word_violation(self) -> None:
+        """主題語が per-day 上限を超過した場合に違反を検出する。"""
+        text = "効率化を求め、効率を追い、効率に疲れ、効率の呪縛。"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=[],
+            used_structures=[],
+            used_openings=[],
+            theme_word_totals={"効率": 5},
+        )
+        assert any("効率" in v for v in violations)
+
+    def test_opening_pattern_violation(self) -> None:
+        """書き出しパターンが上限に達している場合に違反を検出する。"""
+        text = "今日は、まるで嵐のような一日だった。段落。\n\nゆっくりと深呼吸をした。"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=[],
+            used_structures=[],
+            used_openings=["Day 1: 比喩型", "Day 2: 比喩型"],
+            theme_word_totals={},
+        )
+        assert any("比喩型" in v for v in violations)
+
+    def test_multiple_violations(self) -> None:
+        """複数の違反が同時に検出される。"""
+        text = "会議室で効率の話。効率化。効率的。効率主義。\n\nこれは何のだろうか......"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=["Day 1: 〜だろう系", "Day 2: 〜だろう系"],
+            used_structures=["Day 1: 会議型"],
+            used_openings=[],
+            theme_word_totals={"効率": 10},
+        )
+        assert len(violations) >= 2

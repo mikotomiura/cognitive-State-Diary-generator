@@ -282,6 +282,10 @@ ValidationError 発生
 | 余韻フィードバック | 前Day群の末尾段落 | テキスト (`prev_endings`、直近3日分) |
 | シーン描写フィードバック | 前Day群のキーフレーズ | テキスト (`prev_images`、最大5件) |
 | 書き出しパターン | 前Day群の冒頭分類 | テキスト (`used_openings`、6パターン分類) |
+| 禁止事項 (構造制約) | 前Day群の使用状況 | テキスト (`critical_constraints`、プロンプト冒頭に配置) |
+| 余韻構文パターン | 前Day群の末尾構文分類 | テキスト (`used_ending_patterns`、9パターン分類、ホワイトリスト方式) |
+| 主題語の累計使用回数 | 前Day群のカウント | 辞書 (`theme_word_totals`、ソフト/ハードリミット付き) |
+| 修辞疑問文フィードバック | 前Day群の問いかけ | テキスト (`prev_rhetorical`、直近5件) |
 | 長期記憶 (あれば) | MemoryManager | JSON (`long_term_context`: beliefs/themes/turning_points) |
 
 **出力:** Markdown テキスト（プレーンテキスト）
@@ -653,9 +657,9 @@ class PipelineLog(BaseModel):
 
 #### `engine/actor.py` — Actor
 - Phase 1: `update_state(prev_state, event, long_term_context?) -> CharacterState`
-- Phase 2: `generate_diary(state, event, revision?, long_term_context?, temperature?, prev_endings?, prev_images?, used_openings?) -> str`
+- Phase 2: `generate_diary(state, event, revision?, long_term_context?, temperature?, prev_endings?, prev_images?, used_openings?, used_structures?, used_philosophers?, used_ending_patterns?, theme_word_totals?, prev_rhetorical?) -> str`
 - プロンプトの読み込みとテンプレート展開
-- `prev_images`/`used_openings`/`prev_endings` のプロンプト注入セクション構築
+- `prev_images`/`used_openings`/`prev_endings`/`used_ending_patterns`/`theme_word_totals`/`prev_rhetorical` のプロンプト注入セクション構築
 - 長期記憶コンテキストの整形（`_format_long_term_context()`）
 - LLM API呼び出し（`LLMClient` 経由）
 
@@ -675,6 +679,10 @@ class PipelineLog(BaseModel):
   - `_extract_ending()`: 余韻フレーズ（末尾段落）の抽出 → `prev_endings`
   - `_extract_key_images()`: シーン描写キーフレーズの抽出 → `prev_images`
   - `_detect_opening_pattern()`: 書き出しパターンの6分類 → `used_openings`
+  - `_detect_ending_pattern()`: 余韻構文パターンの9分類 → `used_ending_patterns`
+  - `_validate_structural_constraints()`: 生成後の構造的制約バリデーション (5項目)
+  - `_count_theme_words()`: 主題語の出現回数カウント → `theme_word_totals`
+  - `_extract_rhetorical_questions()`: 修辞疑問文の抽出 → `prev_rhetorical`
 - `_sanitize_revision()`: Critic の `revision_instruction` を制御文字除去 + XMLデリミタで安全化
 - 生成記録の収集
 
@@ -705,7 +713,12 @@ class PipelineLog(BaseModel):
          + (リトライ時) "## 修正指示" + revision_instruction
          + "## 使用済み余韻" + prev_endings (直近3日の末尾段落)
          + "## 使用済みシーン描写" + prev_images (場所・物のキーフレーズ)
-         + "## 使用済み書き出しパターン" + used_openings (6パターン分類)
+         + {critical_constraints} (プロンプト冒頭: 余韻/構造/書き出しの絶対禁止事項)
+         + "## 書き出しパターンの指定" + used_openings (6パターン、ホワイトリスト+具体例)
+         + "## 余韻パターンの指定" + used_ending_patterns (9パターン、ホワイトリスト+具体例)
+         + "## 使用済み場面構造パターン" + used_structures (全パターン追跡+連続検出+代替提示)
+         + "## 主題語の使用状況" + theme_word_totals (累計回数・ソフト/ハードリミット+イベント文脈警告)
+         + "## 使用済み修辞疑問文" + prev_rhetorical (直近5件の問いかけ)
          + (長期記憶あり) "## 長期記憶" + beliefs/themes/turning_points
 ```
 
