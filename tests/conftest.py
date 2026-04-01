@@ -97,8 +97,8 @@ def sample_diary() -> str:
 def test_config() -> CSDGConfig:
     """テスト用の設定 (API キーはダミー)。"""
     return CSDGConfig(
-        llm_api_key="test-api-key-dummy",
-        llm_model="claude-sonnet-4-20250514",
+        anthropic_api_key="test-api-key-dummy",
+        anthropic_model="claude-sonnet-4-20250514",
         max_retries=3,
         initial_temperature=0.7,
         output_dir="test_output",

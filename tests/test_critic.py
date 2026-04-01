@@ -17,10 +17,10 @@ from csdg.engine.critic import (
     CriticPipeline,
     RuleBasedValidator,
     StatisticalChecker,
-    compute_trigram_overlap,
-    extract_trigrams,
     compute_deviation,
     compute_expected_delta,
+    compute_trigram_overlap,
+    extract_trigrams,
     judge,
 )
 from csdg.schemas import CharacterState, CriticScore, DailyEvent, LayerScore
@@ -213,7 +213,7 @@ class TestRuleBasedValidator:
 
     def test_good_diary_scores_moderate(self) -> None:
         """禁止表現なしの日記で基本スコア付近."""
-        good_diary = "あ" * 1000  # 適切な長さだが加点要素なし
+        good_diary = "あ" * 400  # 400文字: 理想範囲内だが加点要素なし
         result = self.validator.evaluate(
             good_diary,
             self.prev_state,
@@ -228,7 +228,7 @@ class TestRuleBasedValidator:
     def test_ideal_diary_gets_high_score(self) -> None:
         """理想的な条件を満たす日記が 4.0-5.0 になること."""
         # わたし4回 + ......2回 + 理想文字数
-        ideal_diary = "わたし" * 4 + "......" * 2 + "あ" * 980
+        ideal_diary = "わたし" * 4 + "......" * 2 + "あ" * 380
         result = self.validator.evaluate(
             ideal_diary,
             self.prev_state,
@@ -241,9 +241,9 @@ class TestRuleBasedValidator:
         assert result.persona_deviation <= 5.0
 
     def test_normal_diary_gets_moderate_score(self) -> None:
-        """普通の日記が 3.0-4.5 の範囲に収まること."""
-        # 適切な長さだが加点要素が少ない日記: わたし=0, ellipsis=0
-        normal_diary = "今日も仕事をした。会議に出席した。" * 60
+        """普通の日記が 2.0-3.5 の範囲に収まること."""
+        # 400文字の適切な長さだが加点要素が少ない日記: わたし=0, ellipsis=0
+        normal_diary = "今日も仕事をした。会議に出席した。" * 25
         result = self.validator.evaluate(
             normal_diary,
             self.prev_state,
@@ -256,8 +256,8 @@ class TestRuleBasedValidator:
 
     def test_ending_template_repetition_detected(self) -> None:
         """余韻テンプレート反復が検出されること."""
-        diary = "あ" * 500 + "\n\n効率とBの間にある溝は深い......"
-        prev_diary = "あ" * 500 + "\n\nAとBは両立するのだろうか......"
+        diary = "あ" * 350 + "\n\n効率とBの間にある溝は深い......"
+        prev_diary = "あ" * 350 + "\n\nAとBは両立するのだろうか......"
         result = self.validator.evaluate(
             diary,
             self.prev_state,
@@ -283,7 +283,7 @@ class TestRuleBasedValidator:
 
     def test_emoji_penalized(self) -> None:
         """絵文字を含む日記で persona_deviation が大幅減点される."""
-        emoji_diary = "あ" * 1000 + "\U0001f600\U0001f600"
+        emoji_diary = "あ" * 400 + "\U0001f600\U0001f600"
         result = self.validator.evaluate(
             emoji_diary,
             self.prev_state,
@@ -311,7 +311,7 @@ class TestRuleBasedValidator:
 
     def test_no_prev_diary_no_overlap_check(self) -> None:
         """前日の日記がない場合は重複チェックをスキップ."""
-        diary = "あ" * 1000
+        diary = "あ" * 400
         result = self.validator.evaluate(
             diary,
             self.prev_state,
@@ -328,7 +328,7 @@ class TestRuleBasedValidator:
         expected = {"stress": 0.27, "motivation": -0.36, "fatigue": 0.18}
         # But actual state has stress decreased significantly
         mismatched_state = _make_state(stress=-0.5, motivation=0.5)
-        diary = "あ" * 1000
+        diary = "あ" * 400
 
         result = self.validator.evaluate(
             diary,
@@ -609,7 +609,7 @@ class TestCriticEvaluateFullPrevDiary:
         assert isinstance(mock_llm_client, AsyncMock)
         mock_llm_client.generate_structured.return_value = pass_score
 
-        diary = "あ" * 1000
+        diary = "あ" * 400
         result = await critic.evaluate_full(
             initial_state,
             curr_state,
@@ -652,7 +652,7 @@ class TestRuleBasedValidatorCriticalFailure:
             temporal_consistency=5.0,
             emotional_plausibility=5.0,
             persona_deviation=5.0,
-            details={"char_count": 1000},
+            details={"char_count": 400},
         )
         veto = self.validator.has_critical_failure(result)
         assert not any(veto.values())
@@ -663,7 +663,7 @@ class TestRuleBasedValidatorCriticalFailure:
             temporal_consistency=5.0,
             emotional_plausibility=5.0,
             persona_deviation=3.0,
-            details={"char_count": 1000, "forbidden_pronoun_found": True},
+            details={"char_count": 400, "forbidden_pronoun_found": True},
         )
         veto = self.validator.has_critical_failure(result)
         assert veto["persona_deviation"] is True
@@ -672,8 +672,8 @@ class TestRuleBasedValidatorCriticalFailure:
 
     def test_extreme_char_deviation_vetos_all(self) -> None:
         """文字数 ±50% 超で全軸に veto."""
-        # mid = (800+2000)/2 = 1400, lower = 700, upper = 2100
-        # char_count=100 is well below 700
+        # mid = (300+500)/2 = 400, lower = 200, upper = 600
+        # char_count=100 is well below 200
         result = LayerScore(
             temporal_consistency=5.0,
             emotional_plausibility=5.0,
@@ -689,7 +689,7 @@ class TestRuleBasedValidatorCriticalFailure:
             temporal_consistency=3.5,
             emotional_plausibility=5.0,
             persona_deviation=5.0,
-            details={"char_count": 1000, "trigram_overlap": 0.6},
+            details={"char_count": 400, "trigram_overlap": 0.6},
         )
         veto = self.validator.has_critical_failure(result)
         assert veto["temporal_consistency"] is True
@@ -701,7 +701,7 @@ class TestRuleBasedValidatorCriticalFailure:
             temporal_consistency=3.5,
             emotional_plausibility=5.0,
             persona_deviation=5.0,
-            details={"char_count": 1000, "trigram_overlap": 0.50},
+            details={"char_count": 400, "trigram_overlap": 0.50},
         )
         veto = self.validator.has_critical_failure(result)
         assert veto["temporal_consistency"] is False
@@ -719,7 +719,7 @@ class TestRuleBasedValidatorForbiddenPronouns:
 
     def test_forbidden_pronoun_detected(self) -> None:
         """禁止一人称「僕」を含む日記で検出される."""
-        diary = "あ" * 500 + "僕は今日も頑張った" + "あ" * 500
+        diary = "あ" * 190 + "僕は今日も頑張った" + "あ" * 190
         result = self.validator.evaluate(
             diary,
             self.prev_state,
@@ -732,7 +732,7 @@ class TestRuleBasedValidatorForbiddenPronouns:
 
     def test_allowed_pronoun_not_detected(self) -> None:
         """許可された一人称「わたし」は検出されない."""
-        diary = "あ" * 500 + "わたしは今日も頑張った" + "あ" * 500
+        diary = "あ" * 190 + "わたしは今日も頑張った" + "あ" * 190
         result = self.validator.evaluate(
             diary,
             self.prev_state,
@@ -766,7 +766,7 @@ class TestCriticPipeline:
         pipeline = CriticPipeline(mock_llm_client, test_config, prompts_dir=critic_prompts_dir)
         prev = _make_state()
         curr = _make_state(stress=0.0, motivation=0.3)
-        diary = "あ" * 1000
+        diary = "あ" * 400
         event = _make_event()
 
         result = await pipeline.evaluate(prev, curr, diary, event)
@@ -798,7 +798,7 @@ class TestCriticPipeline:
         curr = _make_state(stress=0.0, motivation=0.3)
 
         # 良い日記で評価
-        good_diary = "あ" * 1000
+        good_diary = "あ" * 400
         good_result = await pipeline.evaluate(prev, curr, good_diary, _make_event())
 
         # 短い日記 + 絵文字で評価
@@ -842,12 +842,12 @@ class TestCriticPipeline:
         # ケース1: 小さな deviation -> 高スコア
         prev1 = _make_state()
         curr1 = _make_state(stress=prev1.stress + 0.01, motivation=prev1.motivation - 0.01)
-        result1 = await pipeline.evaluate(prev1, curr1, "あ" * 1000, _make_event(impact=0.0))
+        result1 = await pipeline.evaluate(prev1, curr1, "あ" * 400, _make_event(impact=0.0))
 
         # ケース2: 非常に大きな deviation -> 低スコア (max_deviation > 0.5)
         prev2 = _make_state()
         curr2 = _make_state(stress=0.9, motivation=-0.8, fatigue=0.8)
-        result2 = await pipeline.evaluate(prev2, curr2, "あ" * 1000, _make_event(impact=0.0))
+        result2 = await pipeline.evaluate(prev2, curr2, "あ" * 400, _make_event(impact=0.0))
 
         # 大きな deviation を持つケースはスコアが低くなるはず
         assert result2.statistical.emotional_plausibility < result1.statistical.emotional_plausibility, (
@@ -874,7 +874,7 @@ class TestCriticPipeline:
         result = await pipeline.evaluate(
             _make_state(),
             _make_state(),
-            "あ" * 1000,
+            "あ" * 400,
             _make_event(),
         )
 
@@ -902,7 +902,7 @@ class TestCriticPipeline:
         prev = _make_state()
         curr = _make_state(stress=0.0, motivation=0.3)
         # 禁止一人称「僕」を含む日記
-        diary = "あ" * 500 + "僕は今日も頑張った" + "あ" * 500
+        diary = "あ" * 190 + "僕は今日も頑張った" + "あ" * 190
         event = _make_event()
 
         result = await pipeline.evaluate(prev, curr, diary, event)
@@ -928,7 +928,7 @@ class TestCriticPipeline:
         pipeline = CriticPipeline(mock_llm_client, test_config, prompts_dir=critic_prompts_dir)
         prev = _make_state()
         curr = _make_state(stress=0.0, motivation=0.3)
-        diary = "あ" * 1000  # 正常な日記
+        diary = "あ" * 400  # 正常な日記
         event = _make_event()
 
         result = await pipeline.evaluate(prev, curr, diary, event)
@@ -954,7 +954,7 @@ class TestCriticPipeline:
         result = await pipeline.evaluate(
             _make_state(),
             _make_state(),
-            "あ" * 1000,
+            "あ" * 400,
             _make_event(),
         )
 
@@ -980,7 +980,7 @@ class TestCriticPipeline:
         prev = _make_state()
         # 非常に大きな deviation -> 低い inverse_estimation_score
         curr = _make_state(stress=0.9, motivation=-0.9, fatigue=0.9)
-        diary = "あ" * 1000
+        diary = "あ" * 400
         event = _make_event(impact=0.0)
 
         result = await pipeline.evaluate(prev, curr, diary, event)
@@ -1009,7 +1009,7 @@ class TestCriticPipeline:
         prev = _make_state()
         curr = _make_state(stress=0.0, motivation=0.3)
         # 禁止一人称「うち」を含む日記 (veto 対象)
-        diary = "あ" * 500 + "うちは今日も頑張った" + "あ" * 500
+        diary = "あ" * 190 + "うちは今日も頑張った" + "あ" * 190
         event = _make_event()
 
         result = await pipeline.evaluate(prev, curr, diary, event)
@@ -1034,7 +1034,7 @@ class TestHasCriticalFailure:
             temporal_consistency=5.0,
             emotional_plausibility=5.0,
             persona_deviation=5.0,
-            details={"forbidden_pronoun_found": True, "char_count": 1000},
+            details={"forbidden_pronoun_found": True, "char_count": 400},
         )
         veto = validator.has_critical_failure(result)
         assert veto["persona_deviation"] is True
@@ -1062,7 +1062,7 @@ class TestHasCriticalFailure:
             temporal_consistency=5.0,
             emotional_plausibility=5.0,
             persona_deviation=5.0,
-            details={"char_count": 1000, "trigram_overlap": 0.55},
+            details={"char_count": 400, "trigram_overlap": 0.55},
         )
         veto = validator.has_critical_failure(result)
         assert veto["temporal_consistency"] is True
@@ -1075,7 +1075,7 @@ class TestHasCriticalFailure:
             temporal_consistency=5.0,
             emotional_plausibility=5.0,
             persona_deviation=5.0,
-            details={"char_count": 1000, "trigram_overlap": 0.1},
+            details={"char_count": 400, "trigram_overlap": 0.1},
         )
         veto = validator.has_critical_failure(result)
         assert all(v is False for v in veto.values())
@@ -1210,21 +1210,31 @@ class TestEndingTrigramOverlap:
 
     def test_similar_endings_detected(self) -> None:
         """類似した余韻がtrigramで検出される."""
-        diary = "あ" * 500 + "\n\nこの震えが教えてくれるものがあるとすれば、それは効率性では測れない何か......"
-        prev = "あ" * 500 + "\n\nこの震えが教えてくれるものがあるとすれば、それはきっと効率性の向こう側にある何か......"
+        diary = "あ" * 350 + "\n\nこの震えが教えてくれるものがあるとすれば、それは効率性では測れない何か......"
+        prev = "あ" * 350 + "\n\nこの震えが教えてくれるものがあるとすれば、それはきっと効率性の向こう側にある何か......"
         result = self.validator.evaluate(
-            diary, self.prev_state, self.curr_state,
-            self.event, self.expected_delta, prev_diary=prev,
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+            prev_diary=prev,
         )
-        assert result.details.get("ending_similarity_high") is True or result.details.get("ending_trigram_overlap", 0) > 0.2
+        has_similarity = result.details.get("ending_similarity_high") is True
+        has_overlap = result.details.get("ending_trigram_overlap", 0) > 0.2
+        assert has_similarity or has_overlap
 
     def test_different_endings_not_flagged(self) -> None:
         """異なる余韻はフラグされない."""
-        diary = "あ" * 500 + "\n\nキーボードを叩く指先に、まだあの震えが残っている......"
-        prev = "あ" * 500 + "\n\n古い本のページに残った疑問符が、今夜は少し違って見える......"
+        diary = "あ" * 350 + "\n\nキーボードを叩く指先に、まだあの震えが残っている......"
+        prev = "あ" * 350 + "\n\n古い本のページに残った疑問符が、今夜は少し違って見える......"
         result = self.validator.evaluate(
-            diary, self.prev_state, self.curr_state,
-            self.event, self.expected_delta, prev_diary=prev,
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+            prev_diary=prev,
         )
         assert result.details.get("ending_similarity_high") is not True
 
@@ -1245,7 +1255,14 @@ class TestFinerEmotionalTiers:
         """max_dev < 0.03 → 4.0 (base 2.5 + 1.5)."""
         prev = _make_state(stress=0.1, motivation=0.2, fatigue=0.1)
         curr = _make_state(stress=0.12, motivation=0.19, fatigue=0.11)
-        result = self.validator.evaluate("あ" * 1000, prev, curr, self.event, {"stress": 0.02, "motivation": -0.01, "fatigue": 0.01})
+        expected = {"stress": 0.02, "motivation": -0.01, "fatigue": 0.01}
+        result = self.validator.evaluate(
+            "あ" * 400,
+            prev,
+            curr,
+            self.event,
+            expected,
+        )
         assert result.emotional_plausibility >= 3.5
 
     def test_large_deviation_gets_penalty(self) -> None:
@@ -1253,6 +1270,186 @@ class TestFinerEmotionalTiers:
         prev = _make_state(stress=0.0, motivation=0.0, fatigue=0.0)
         curr = _make_state(stress=0.2, motivation=0.0, fatigue=0.0)
         # expected=0, actual=0.2, dev=0.2 > 0.12
-        result = self.validator.evaluate("あ" * 1000, prev, curr, self.event, {"stress": 0.0, "motivation": 0.0, "fatigue": 0.0})
+        expected = {"stress": 0.0, "motivation": 0.0, "fatigue": 0.0}
+        result = self.validator.evaluate(
+            "あ" * 400,
+            prev,
+            curr,
+            self.event,
+            expected,
+        )
         assert result.emotional_plausibility <= 2.5
         assert result.details.get("rule_max_deviation", 0) >= 0.12
+
+
+class TestCharCountValidation:
+    """文字数チェック (400文字ベース) のテスト."""
+
+    def setup_method(self) -> None:
+        self.validator = RuleBasedValidator()
+        self.prev_state = _make_state()
+        self.curr_state = _make_state(stress=0.0, motivation=0.3, fatigue=0.05)
+        self.event = _make_event()
+        self.expected_delta = {"stress": -0.06, "motivation": 0.08, "fatigue": -0.04}
+
+    def test_within_range_no_penalty(self) -> None:
+        """400文字の日記は減点されない."""
+        diary = "# テストタイトル\n\n" + "あ" * 400
+        result = self.validator.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        assert result.details["char_count"] == 400
+        assert result.details.get("char_count_violation") is None
+
+    def test_over_500_penalty(self) -> None:
+        """500文字超は重大な減点."""
+        diary = "# テストタイトル\n\n" + "あ" * 550
+        result = self.validator.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        assert result.details.get("char_count_violation") == "too_long"
+
+    def test_under_300_penalty(self) -> None:
+        """300文字未満は重大な減点."""
+        diary = "# テストタイトル\n\n" + "あ" * 250
+        result = self.validator.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        assert result.details.get("char_count_violation") == "too_short"
+
+    def test_warning_range(self) -> None:
+        """350文字未満は軽微な警告 (300-350の範囲)."""
+        diary = "# テストタイトル\n\n" + "あ" * 320
+        result = self.validator.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        # 300-350はペナルティなし (_MIN_DIARY_LENGTH=300以上, _IDEAL_MIN_LENGTH=350未満)
+        assert result.details.get("char_count_violation") is None
+        assert result.details.get("char_count_ideal") is False
+
+    def test_title_excluded_from_count(self) -> None:
+        """タイトル行は文字数カウントに含まれない."""
+        diary = "# これは長いタイトルだが文字数に含まれない\n\n" + "あ" * 400
+        result = self.validator.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        assert result.details["char_count"] == 400
+
+    def test_over_580_strong_penalty(self) -> None:
+        """580文字超で persona_deviation に -2.0 ペナルティ."""
+        diary = "# タイトル\n\n" + "あ" * 590
+        result = self.validator.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            self.event,
+            self.expected_delta,
+        )
+        assert result.details.get("char_count_over", 0) > 80
+        assert result.persona_deviation <= 2.0
+
+
+class TestVetoCharCount:
+    """文字数 veto 閾値 (550文字超) のテスト."""
+
+    def setup_method(self) -> None:
+        self.validator = RuleBasedValidator()
+
+    def test_veto_triggers_at_550_chars(self) -> None:
+        """550文字超で全軸 veto 発動."""
+        result = LayerScore(
+            temporal_consistency=5.0,
+            emotional_plausibility=5.0,
+            persona_deviation=5.0,
+            details={"char_count": 560},
+        )
+        veto = self.validator.has_critical_failure(result)
+        assert veto["persona_deviation"] is True
+
+    def test_no_veto_at_540_chars(self) -> None:
+        """540文字では veto 不発動."""
+        result = LayerScore(
+            temporal_consistency=5.0,
+            emotional_plausibility=5.0,
+            persona_deviation=5.0,
+            details={"char_count": 540},
+        )
+        veto = self.validator.has_critical_failure(result)
+        assert veto["persona_deviation"] is False
+
+
+class TestHighImpactEmotionalCollapse:
+    """高インパクト日の感情決壊チェックのテスト."""
+
+    def setup_method(self) -> None:
+        from csdg.engine.critic import StatisticalChecker
+
+        self.checker = StatisticalChecker()
+        self.prev_state = _make_state()
+        self.curr_state = _make_state(stress=0.3, motivation=-0.1, fatigue=0.2)
+        self.expected = {"stress": 0.24, "motivation": -0.32, "fatigue": 0.16}
+        self.deviation = {"stress": 0.06, "motivation": 0.22, "fatigue": 0.04}
+
+    def test_consecutive_short_burst_detected(self) -> None:
+        """連続3文の短文連打で has_short_burst=True."""
+        # 句読点で区切り、短文3連続を確保
+        diary = "あいうえお。" * 30 + "無理。嫌だ。帰る。もう何もしたくない。" + "かきくけこ。" * 20
+        event = _make_event(impact=-0.8)
+        result = self.checker.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            event,
+            self.expected,
+            self.deviation,
+        )
+        assert result.details.get("has_short_burst") is True
+
+    def test_scattered_short_not_burst(self) -> None:
+        """散在する短文では has_short_burst=False."""
+        diary = "無理。" + "あ" * 100 + "嫌だ。" + "あ" * 100 + "帰る。" + "あ" * 100
+        event = _make_event(impact=-0.8)
+        result = self.checker.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            event,
+            self.expected,
+            self.deviation,
+        )
+        assert result.details.get("has_short_burst") is False
+
+    def test_insufficient_features_strong_penalty(self) -> None:
+        """features<2 で persona score が大幅低下."""
+        diary = "あ" * 400
+        event = _make_event(impact=-0.8)
+        result = self.checker.evaluate(
+            diary,
+            self.prev_state,
+            self.curr_state,
+            event,
+            self.expected,
+            self.deviation,
+        )
+        assert result.details.get("emotional_collapse_failed") is True
+        assert result.persona_deviation <= 1.0

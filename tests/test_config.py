@@ -16,7 +16,7 @@ from csdg.config import CriticWeights, CSDGConfig, StateTransitionConfig, VetoCa
 @pytest.fixture()
 def config(monkeypatch: pytest.MonkeyPatch) -> CSDGConfig:
     """APIキーを設定した CSDGConfig インスタンスを返す。"""
-    monkeypatch.setenv("CSDG_LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
     return CSDGConfig()
 
 
@@ -27,9 +27,9 @@ class TestCSDGConfigDefaults:
         """llm_model のデフォルト値が claude-sonnet-4-20250514 である。"""
         assert config.llm_model == "claude-sonnet-4-20250514"
 
-    def test_llm_base_url_default(self, config: CSDGConfig) -> None:
-        """llm_base_url のデフォルト値が正しい。"""
-        assert config.llm_base_url == "https://api.anthropic.com"
+    def test_anthropic_base_url_default(self, config: CSDGConfig) -> None:
+        """anthropic_base_url のデフォルト値が正しい."""
+        assert config.anthropic_base_url == "https://api.anthropic.com"
 
     def test_max_retries_default(self, config: CSDGConfig) -> None:
         """max_retries のデフォルト値が 3 である。"""
@@ -82,7 +82,7 @@ class TestEmotionSensitivityProperty:
 
     def test_custom_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """カスタム感情感度係数が反映される。"""
-        monkeypatch.setenv("CSDG_LLM_API_KEY", "test-api-key")
+        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
         monkeypatch.setenv("CSDG_EMOTION_SENSITIVITY_STRESS", "-0.5")
         monkeypatch.setenv("CSDG_EMOTION_SENSITIVITY_MOTIVATION", "0.8")
         monkeypatch.setenv("CSDG_EMOTION_SENSITIVITY_FATIGUE", "-0.1")
@@ -114,7 +114,7 @@ class TestTemperatureScheduleProperty:
 
     def test_custom_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """max_retries を変更するとスケジュールの長さが変わる。"""
-        monkeypatch.setenv("CSDG_LLM_API_KEY", "test-api-key")
+        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
         monkeypatch.setenv("CSDG_MAX_RETRIES", "5")
         cfg = CSDGConfig()
         assert len(cfg.temperature_schedule) == 5
@@ -122,7 +122,7 @@ class TestTemperatureScheduleProperty:
 
     def test_exponential_lower_than_linear_at_end(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """指数減衰が線形より終盤で低い値になることの検証。"""
-        monkeypatch.setenv("CSDG_LLM_API_KEY", "test-api-key")
+        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
         monkeypatch.setenv("CSDG_MAX_RETRIES", "5")
         cfg = CSDGConfig()
 
@@ -139,7 +139,7 @@ class TestTemperatureScheduleProperty:
 
     def test_exponential_formula_matches(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """指数減衰の計算式が正しいことの検証。"""
-        monkeypatch.setenv("CSDG_LLM_API_KEY", "test-api-key")
+        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
         monkeypatch.setenv("CSDG_TEMPERATURE_DECAY_CONSTANT", "1.5")
         cfg = CSDGConfig()
 
@@ -153,28 +153,29 @@ class TestEnvironmentVariables:
     """環境変数からの値読み込みテスト。"""
 
     def test_api_key_from_env(self, config: CSDGConfig) -> None:
-        """環境変数から llm_api_key が読み込まれる。"""
+        """環境変数から anthropic_api_key が読み込まれる."""
+        assert config.anthropic_api_key == "test-api-key"
         assert config.llm_api_key == "test-api-key"
 
     def test_custom_model_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """環境変数から llm_model が読み込まれる。"""
-        monkeypatch.setenv("CSDG_LLM_API_KEY", "test-api-key")
-        monkeypatch.setenv("CSDG_LLM_MODEL", "claude-sonnet-4-6")
+        """環境変数から anthropic_model が読み込まれる."""
+        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
+        monkeypatch.setenv("CSDG_ANTHROPIC_MODEL", "claude-sonnet-4-6")
         cfg = CSDGConfig()
         assert cfg.llm_model == "claude-sonnet-4-6"
 
     def test_custom_output_dir_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """環境変数から output_dir が読み込まれる。"""
-        monkeypatch.setenv("CSDG_LLM_API_KEY", "test-api-key")
+        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
         monkeypatch.setenv("CSDG_OUTPUT_DIR", "/tmp/csdg_output")
         cfg = CSDGConfig()
         assert cfg.output_dir == "/tmp/csdg_output"
 
-    def test_missing_api_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """CSDG_LLM_API_KEY が未設定の場合エラーが発生する。"""
-        monkeypatch.delenv("CSDG_LLM_API_KEY", raising=False)
-        with pytest.raises((ValueError, KeyError)):
-            CSDGConfig(_env_file=None)  # type: ignore[call-arg]
+    def test_missing_api_key_defaults_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """API キーが未設定の場合、デフォルト空文字になる."""
+        monkeypatch.delenv("CSDG_ANTHROPIC_API_KEY", raising=False)
+        cfg = CSDGConfig(_env_file=None)  # type: ignore[call-arg]
+        assert cfg.anthropic_api_key == ""
 
 
 # ====================================================================
@@ -214,8 +215,9 @@ class TestStateTransitionProperty:
 
 
 class TestApiKeyExcluded:
-    """llm_api_key が model_dump から除外されることのテスト。"""
+    """API キーが model_dump から除外されることのテスト."""
 
     def test_api_key_excluded_from_dump(self, config: CSDGConfig) -> None:
         dumped = config.model_dump()
-        assert "llm_api_key" not in dumped
+        assert "anthropic_api_key" not in dumped
+        assert "gemini_api_key" not in dumped

@@ -147,10 +147,12 @@ cognitive-State-Diary-generator/
 ### 2.2 `.env.example` の内容
 
 ```env
-# LLM API設定
-CSDG_LLM_API_KEY=your-anthropic-api-key-here
-CSDG_LLM_MODEL=claude-sonnet-4-20250514
-CSDG_LLM_BASE_URL=https://api.anthropic.com
+# LLM プロバイダー設定
+CSDG_LLM_PROVIDER=anthropic
+CSDG_ANTHROPIC_API_KEY=your-anthropic-api-key-here
+CSDG_ANTHROPIC_MODEL=claude-sonnet-4-20250514
+CSDG_GEMINI_API_KEY=your-gemini-api-key-here
+CSDG_GEMINI_MODEL=gemini-2.0-flash
 
 # パイプライン設定
 CSDG_MAX_RETRIES=3
@@ -589,7 +591,7 @@ allowed-tools: (許可するツールのリスト)
 
 | 規則 | 例 |
 |---|---|
-| `CSDG_` プレフィックス + アッパースネークケース | `CSDG_LLM_API_KEY`, `CSDG_MAX_RETRIES` |
+| `CSDG_` プレフィックス + アッパースネークケース | `CSDG_ANTHROPIC_API_KEY`, `CSDG_MAX_RETRIES` |
 
 ---
 

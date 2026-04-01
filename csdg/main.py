@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from csdg.config import CSDGConfig
 from csdg.engine.actor import Actor
 from csdg.engine.critic import Critic
-from csdg.engine.llm_client import AnthropicClient
+from csdg.engine.llm_client import AnthropicClient, GeminiClient, LLMClient
 from csdg.engine.pipeline import PipelineRunner
 from csdg.scenario import INITIAL_STATE, SCENARIO, validate_scenario
 
@@ -183,11 +183,24 @@ async def run_pipeline(args: argparse.Namespace) -> int:
         return _EXIT_OK
 
     # 4-6. パイプライン構築・実行
-    client = AnthropicClient(
-        api_key=config.llm_api_key,
-        model=config.llm_model,
-        base_url=config.llm_base_url,
-    )
+    client: LLMClient
+    if config.llm_provider == "gemini":
+        fallback: tuple[str, ...] | None = None
+        if config.gemini_fallback_models:
+            fallback = tuple(m.strip() for m in config.gemini_fallback_models.split(",") if m.strip())
+        client = GeminiClient(
+            api_key=config.llm_api_key,
+            model=config.llm_model,
+            fallback_models=fallback,
+        )
+        logger.info("LLM provider: Gemini (%s)", config.llm_model)
+    else:
+        client = AnthropicClient(
+            api_key=config.llm_api_key,
+            model=config.llm_model,
+            base_url=config.anthropic_base_url,
+        )
+        logger.info("LLM provider: Anthropic (%s)", config.llm_model)
     actor = Actor(client, config)
     critic = Critic(client, config)
     runner = PipelineRunner(config, actor, critic, llm_client=client)

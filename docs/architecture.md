@@ -295,7 +295,7 @@ ValidationError 発生
 |---|---|---|
 | `response_format` | テキスト (NOT Structured Outputs) | 表現力豊かな自由テキスト生成のため |
 | `temperature` | 0.7（初回）→ Temperature Decay | |
-| `max_tokens` | 4096 | ブログ記事は長文になりうる |
+| `max_tokens` | 512 | ブログ記事は約400文字 (300-350文字指示で380-420文字に着地) |
 
 **重要な設計判断:**
 - Phase 2 では Structured Outputs を使わない。JSONエスケープの制約が文学的表現を阻害するため
@@ -352,7 +352,7 @@ def judge(score: CriticScore) -> bool:
 ```
 CriticPipeline:
   Layer 1: RuleBasedValidator (決定論的, 重み 0.40)
-    - 文字数レンジチェック (段階化: sweet [1000-1200] +1.0 / acceptable +0.5)
+    - 文字数レンジチェック (段階化: sweet [370-430] +1.0 / acceptable [350-450] +0.5)
     - わたし使用頻度 (段階化: sweet [4-6] +1.0 / acceptable [2-8] +0.5 / overuse >8 -1.0)
     - 余韻「......」使用頻度 (段階化: sweet [2-3] +1.0 / acceptable +0.5)
     - 前日との重複率 (段階化: <0.10 +1.0 / <0.15 +0.5 / >0.30 -1.5)
@@ -902,7 +902,7 @@ class AnthropicClient(LLMClient):
 
 ### 9.4 セキュリティ
 
-- API キーは環境変数 (`CSDG_LLM_API_KEY`) で管理し、コードにハードコードしない
+- API キーは環境変数 (`CSDG_ANTHROPIC_API_KEY`, `CSDG_GEMINI_API_KEY`) で管理し、コードにハードコードしない
 - `.env` ファイルは `.gitignore` に追加する
 - 生成ログにAPI キーが含まれないよう、出力前にサニタイズする
 

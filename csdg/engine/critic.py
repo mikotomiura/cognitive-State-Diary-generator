@@ -36,11 +36,11 @@ _SCORE_FIELDS = ("temporal_consistency", "emotional_plausibility", "persona_devi
 
 _CONTINUOUS_PARAMS = ("fatigue", "motivation", "stress")
 
-# RuleBasedValidator の定数
-_MIN_DIARY_LENGTH = 800
-_MAX_DIARY_LENGTH = 2000
-_IDEAL_MIN_LENGTH = 1000
-_IDEAL_MAX_LENGTH = 1400
+# RuleBasedValidator の定数 (ブログ記事: 約400文字ベース)
+_MIN_DIARY_LENGTH = 300
+_MAX_DIARY_LENGTH = 500
+_IDEAL_MIN_LENGTH = 350
+_IDEAL_MAX_LENGTH = 450
 _MAX_TRIGRAM_OVERLAP = 0.30
 _BASE_SCORE = 2.5
 _EMOJI_PATTERN = re.compile(
@@ -189,19 +189,34 @@ class RuleBasedValidator:
         details: dict[str, object] = {}
 
         # 文字数レンジチェック -> persona_deviation に影響
-        char_count = len(diary_text)
+        # Markdown 見出し行 (# で始まる行) を除外して本文の文字数をカウント
+        lines = diary_text.strip().split("\n")
+        body_lines = [line for line in lines if not re.match(r"^#{1,6}\s", line)]
+        body_text = "\n".join(body_lines).strip()
+        char_count = len(body_text)
         details["char_count"] = char_count
         if char_count < _MIN_DIARY_LENGTH:
             penalties["persona_deviation"] += 1.5
             details["char_count_violation"] = "too_short"
         elif char_count > _MAX_DIARY_LENGTH:
-            penalties["persona_deviation"] += 0.5
+            over = char_count - _MAX_DIARY_LENGTH
+            if over > 80:
+                penalties["persona_deviation"] += 2.0
+            elif over > 40:
+                penalties["persona_deviation"] += 1.5
+            else:
+                penalties["persona_deviation"] += 1.0
             details["char_count_violation"] = "too_long"
+            details["char_count_over"] = over
+        elif char_count > _IDEAL_MAX_LENGTH:
+            # 理想上限(450)超〜許容上限(500)以下: 軽微ペナルティ
+            penalties["persona_deviation"] += 0.5
+            details["char_count_warning"] = True
 
         # 加点: 文字数が理想範囲内 (段階化)
         char_count_ideal = _IDEAL_MIN_LENGTH <= char_count <= _IDEAL_MAX_LENGTH
         details["char_count_ideal"] = char_count_ideal
-        if 1000 <= char_count <= 1200:
+        if 370 <= char_count <= 430:
             base_scores["temporal_consistency"] += 1.0  # sweet spot
         elif char_count_ideal:
             base_scores["temporal_consistency"] += 0.5  # acceptable
@@ -354,7 +369,7 @@ class RuleBasedValidator:
         if isinstance(char_count, int):
             mid = (_MIN_DIARY_LENGTH + _MAX_DIARY_LENGTH) / 2
             lower = mid * (1 - _CRITICAL_CHAR_DEVIATION)
-            upper = mid * (1 + _CRITICAL_CHAR_DEVIATION)
+            upper = _MAX_DIARY_LENGTH + 50  # 550文字超で veto
             if char_count < lower or char_count > upper:
                 veto["temporal_consistency"] = True
                 veto["emotional_plausibility"] = True
@@ -487,8 +502,20 @@ class StatisticalChecker:
 
             # 高インパクト日の文体特徴チェック (Prompt_Generator.md §emotional_impact)
             # 短文連打・比喩崩壊・口語混入・哲学中断が必要
-            short_sentences = [s for s in sentences if 0 < len(s) <= 6]
-            has_short_burst = len(short_sentences) >= 3
+
+            # 短文連打: 8文字以下の文が3回以上「連続」している箇所があるか
+            # 「意味わからない」(7文字) 等も短文として認識する
+            has_short_burst = False
+            consecutive_short = 0
+            for s in sentences:
+                if 0 < len(s) <= 8:
+                    consecutive_short += 1
+                    if consecutive_short >= 3:
+                        has_short_burst = True
+                        break
+                else:
+                    consecutive_short = 0
+
             colloquial_markers = ("ムカつく", "意味わからん", "普通に", "マジで", "嫌")
             has_colloquial = any(m in diary_text for m in colloquial_markers)
             interruption_markers = ("いや、", "——いや", "とか関係ない", "そんな話じゃない")
@@ -500,10 +527,17 @@ class StatisticalChecker:
             details["has_colloquial"] = has_colloquial
             details["has_interruption"] = has_interruption
 
-            # 高インパクト日なのに文体が整然としすぎている場合は減点
+            # 高インパクト日なのに文体が整然としすぎている場合は段階的減点
             if high_impact_features < 2:
+                penalties["persona_deviation"] += 2.5
+                details["emotional_collapse_failed"] = True
+            elif high_impact_features < 3:
                 penalties["persona_deviation"] += 1.0
-                details["insufficient_emotional_style"] = True
+                details["emotional_collapse_partial"] = True
+            else:
+                # 感情決壊文体が十分に達成されている場合はボーナス
+                base_scores["persona_deviation"] += 0.5
+                details["emotional_collapse_achieved"] = True
 
         def _clamp(field: str) -> float:
             return max(1.0, min(5.0, base_scores[field] - penalties[field]))

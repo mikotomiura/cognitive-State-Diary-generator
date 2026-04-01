@@ -107,8 +107,8 @@ def _wrap_as_result(score: CriticScore) -> CriticResult:
 @pytest.fixture()
 def config() -> CSDGConfig:
     return CSDGConfig(
-        llm_api_key="test-key",
-        llm_model="gpt-4o",
+        anthropic_api_key="test-key",
+        anthropic_model="gpt-4o",
         max_retries=3,
         initial_temperature=0.7,
         output_dir="test_output",
@@ -592,8 +592,8 @@ class TestPromptHashes:
 
         (tmp_path / "Test.md").write_text("test prompt", encoding="utf-8")
         cfg = CSDGConfig(
-            llm_api_key="test-key",
-            llm_model="gpt-4o",
+            anthropic_api_key="test-key",
+            anthropic_model="gpt-4o",
             max_retries=3,
             initial_temperature=0.7,
             output_dir="test_output",
@@ -1128,10 +1128,15 @@ class TestDetectStructurePattern:
         text = "帰り道に電車に乗った。窓の外を眺める。"
         assert _detect_structure_pattern(text) == "帰路型"
 
-    def test_kiroji_single_marker_not_matched(self) -> None:
-        """帰路型はマーカー1つだけでは検出されない。"""
+    def test_kiroji_single_marker_matched(self) -> None:
+        """帰路型はマーカー1つで検出される."""
         text = "帰り道を歩いた。カフェに立ち寄った。"
-        assert _detect_structure_pattern(text) != "帰路型"
+        assert _detect_structure_pattern(text) == "帰路型"
+
+    def test_kaerino_densha_detected(self) -> None:
+        """「帰りの電車」で帰路型検出."""
+        text = "帰りの電車で考えた。窓の外は暗かった。"
+        assert _detect_structure_pattern(text) == "帰路型"
 
     def test_koshotan_pattern(self) -> None:
         """古書店型の検出。"""
@@ -1394,7 +1399,20 @@ class TestSceneMarkersIntegrity:
         """追加されたマーカーが含まれていること。"""
         from csdg.engine.pipeline import _SCENE_MARKERS
 
-        added = ("万年筆", "茶碗", "珈琲", "インク", "背表紙", "付箋", "マグカップ", "手帳", "傘", "湯気", "古本", "夕焼け")
+        added = (
+            "万年筆",
+            "茶碗",
+            "珈琲",
+            "インク",
+            "背表紙",
+            "付箋",
+            "マグカップ",
+            "手帳",
+            "傘",
+            "湯気",
+            "古本",
+            "夕焼け",
+        )
         for marker in added:
             assert marker in _SCENE_MARKERS, f"追加されるべきマーカー '{marker}' が存在しない"
 
@@ -1711,7 +1729,12 @@ class TestOpeningTextOverlapValidation:
         diary = "問い型で始めよう——効率って、いつから美徳になったんだろう。" + "あ" * 1000
         prev_openings = ["問い型で始めよう——効率って、いつから美徳になったんだろう。"]
         violations = _validate_structural_constraints(
-            diary, [], [], [], {}, prev_openings_text=prev_openings,
+            diary,
+            [],
+            [],
+            [],
+            {},
+            prev_openings_text=prev_openings,
         )
         assert any("冒頭テキスト" in v for v in violations)
 
@@ -1720,7 +1743,12 @@ class TestOpeningTextOverlapValidation:
         diary = "図書館のインクの匂いが、鼻の奥にまだ残っている。" + "あ" * 1000
         prev_openings = ["問い型で始めよう——効率って、いつから美徳になったんだろう。"]
         violations = _validate_structural_constraints(
-            diary, [], [], [], {}, prev_openings_text=prev_openings,
+            diary,
+            [],
+            [],
+            [],
+            {},
+            prev_openings_text=prev_openings,
         )
         assert not any("冒頭テキスト" in v for v in violations)
 
@@ -1763,7 +1791,12 @@ class TestEndingTextOverlapValidation:
         diary = "冒頭文が十分に長いテストテキスト。\n\n缶コーヒーを飲み干して底に残った最後の一滴が落ちていく。"
         prev_endings = ["缶コーヒーを飲み干してゴミ箱に捨てた。底に残った最後の一滴が落ちていく。"]
         violations = _validate_structural_constraints(
-            diary, [], [], [], {}, prev_endings_text=prev_endings,
+            diary,
+            [],
+            [],
+            [],
+            {},
+            prev_endings_text=prev_endings,
         )
         assert any("余韻テキスト" in v for v in violations)
 
@@ -1772,6 +1805,11 @@ class TestEndingTextOverlapValidation:
         diary = "冒頭文が十分に長いテストテキスト。\n\n窓の外に落ちる、最後の残照。"
         prev_endings = ["缶コーヒーを飲み干して底に残った最後の一滴が落ちていく。"]
         violations = _validate_structural_constraints(
-            diary, [], [], [], {}, prev_endings_text=prev_endings,
+            diary,
+            [],
+            [],
+            [],
+            {},
+            prev_endings_text=prev_endings,
         )
         assert not any("余韻テキスト" in v for v in violations)

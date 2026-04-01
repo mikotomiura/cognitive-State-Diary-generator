@@ -713,7 +713,8 @@ dev = [
 
 | 情報 | 管理方法 | Git管理 |
 |---|---|---|
-| LLM APIキー | 環境変数 `CSDG_LLM_API_KEY` | ✕ |
+| LLM APIキー (Anthropic) | 環境変数 `CSDG_ANTHROPIC_API_KEY` | ✕ |
+| LLM APIキー (Gemini) | 環境変数 `CSDG_GEMINI_API_KEY` | ✕ |
 | `.env` ファイル | ローカルのみ。テンプレートとして `.env.example` をGit管理 | `.env` は ✕ / `.env.example` は ○ |
 | 生成ログ | `output/generation_log.json` | ✕（APIキーが含まれないことを保証） |
 

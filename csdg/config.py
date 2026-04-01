@@ -54,10 +54,18 @@ class CSDGConfig(BaseSettings):
 
     model_config = {"env_prefix": "CSDG_", "env_file": ".env", "env_file_encoding": "utf-8"}
 
-    # LLM設定
-    llm_api_key: str = Field(exclude=True)
-    llm_model: str = "claude-sonnet-4-20250514"
-    llm_base_url: str = "https://api.anthropic.com"
+    # LLM設定: プロバイダー選択
+    llm_provider: str = "anthropic"  # "anthropic" or "gemini"
+
+    # Anthropic 専用
+    anthropic_api_key: str = Field(default="", exclude=True)
+    anthropic_model: str = "claude-sonnet-4-20250514"
+    anthropic_base_url: str = "https://api.anthropic.com"
+
+    # Gemini 専用
+    gemini_api_key: str = Field(default="", exclude=True)
+    gemini_model: str = "gemini-2.0-flash"
+    gemini_fallback_models: str = ""  # カンマ区切り
 
     # パイプライン設定
     max_retries: int = 3
@@ -94,6 +102,20 @@ class CSDGConfig(BaseSettings):
 
     # 出力
     output_dir: str = "output"
+
+    @property
+    def llm_api_key(self) -> str:
+        """現在のプロバイダーに応じた API キーを返す。"""
+        if self.llm_provider == "gemini":
+            return self.gemini_api_key
+        return self.anthropic_api_key
+
+    @property
+    def llm_model(self) -> str:
+        """現在のプロバイダーに応じたモデル名を返す。"""
+        if self.llm_provider == "gemini":
+            return self.gemini_model
+        return self.anthropic_model
 
     @property
     def emotion_sensitivity(self) -> dict[str, float]:

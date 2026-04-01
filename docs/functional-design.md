@@ -317,8 +317,11 @@ initial_state = CharacterState(
 
 | 変数名 | 必須 | デフォルト | 説明 |
 |---|---|---|---|
-| `CSDG_LLM_API_KEY` | 必須 | — | LLM APIのアクセスキー |
-| `CSDG_LLM_MODEL` | 任意 | `claude-sonnet-4-20250514` | 使用する Claude モデル名 |
+| `CSDG_LLM_PROVIDER` | 任意 | `anthropic` | LLM プロバイダー (`anthropic` or `gemini`) |
+| `CSDG_ANTHROPIC_API_KEY` | 条件付き必須 | — | Anthropic API キー (provider=anthropic 時に必須) |
+| `CSDG_ANTHROPIC_MODEL` | 任意 | `claude-sonnet-4-20250514` | Claude モデル名 |
+| `CSDG_GEMINI_API_KEY` | 条件付き必須 | — | Gemini API キー (provider=gemini 時に必須) |
+| `CSDG_GEMINI_MODEL` | 任意 | `gemini-2.0-flash` | Gemini モデル名 |
 | `CSDG_MAX_RETRIES` | 任意 | `3` | 最大リトライ回数 |
 | `CSDG_INITIAL_TEMPERATURE` | 任意 | `0.7` | 初回生成時のTemperature |
 | `CSDG_OUTPUT_DIR` | 任意 | `output` | 出力ディレクトリ |

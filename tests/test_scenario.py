@@ -37,10 +37,10 @@ class TestScenarioDefinition:
         assert -1.0 <= event.emotional_impact <= 1.0
 
     def test_day4_emotional_impact(self) -> None:
-        """Day 4 の emotional_impact が -0.9 である (ストレステスト確認)。"""
+        """Day 4 の emotional_impact が -0.8 である (感情決壊シナリオ)."""
         day4 = SCENARIO[3]
         assert day4.day == 4
-        assert day4.emotional_impact == -0.9
+        assert day4.emotional_impact == -0.8
 
     @pytest.mark.parametrize("index", range(7))
     def test_description_min_length(self, index: int) -> None:
@@ -65,8 +65,8 @@ class TestInitialState:
         assert INITIAL_STATE.stress == -0.1
 
     def test_current_focus(self) -> None:
-        """current_focus の初期値が正しい。"""
-        assert INITIAL_STATE.current_focus == "来週の社内コードレビュー会の準備"
+        """current_focus の初期値が正しい."""
+        assert INITIAL_STATE.current_focus == "自動化スクリプトの本番投入が完了した直後の微妙な手持ち無沙汰"
 
     def test_unresolved_issue(self) -> None:
         """unresolved_issue の初期値が None である。"""

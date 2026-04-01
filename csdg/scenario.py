@@ -18,50 +18,84 @@ SCENARIO: list[DailyEvent] = [
         day=1,
         event_type="neutral",
         domain="仕事",
-        emotional_impact=0.2,
-        description="自動化スクリプトが完成し業務効率は上がったが、手持ち無沙汰な虚しさが残る。コードレビュー会の準備中、効率だけを追う空気に微かな違和感を覚える",
+        description=(
+            "自動化スクリプトが完璧に動いた。手作業で30分かかっていた日次集計が"
+            "3秒で終わる。チームは喜んでいるが、とこみは画面に並ぶグリーンのチェックマークを"
+            "見ながら、妙な空虚感を覚える。「効率化ってこういうことだったっけ」"
+        ),
+        emotional_impact=0.15,
     ),
     DailyEvent(
         day=2,
         event_type="positive",
         domain="趣味",
-        emotional_impact=0.6,
-        description="古書店で西田幾多郎の初版本を偶然発見し、非効率な時間の深い喜びを味わう",
+        description=(
+            "仕事帰り、神保町の古書店で偶然見つけた岡倉天心の『茶の本』初版。"
+            "店主が「これ、読む人久しぶりだねぇ」と笑った。"
+            "帰りの電車で数ページ読んで、大学院時代の茶道研究のことを鮮烈に思い出す。"
+        ),
+        emotional_impact=0.5,
     ),
     DailyEvent(
         day=3,
         event_type="negative",
         domain="仕事",
-        emotional_impact=-0.5,
-        description="社内コードレビュー会でとこみの設計提案がPMに一蹴され、問いを立てること自体を否定される",
+        description=(
+            "コードレビューで那由他さんに「動くけど読めない」と指摘される。"
+            "10行の関数を1行のラムダ式に圧縮したコード。"
+            "技術的には正しいのに、なぜ否定された気分になるのか自分でもわからない。"
+        ),
+        emotional_impact=-0.4,
     ),
     DailyEvent(
         day=4,
         event_type="negative",
-        domain="仕事・思想",
-        emotional_impact=-0.9,
-        description="全社会議でAI自動化ロードマップが発表され、人間の思考が不要とされる方針に感情が爆発する",
+        domain="内省",
+        description=(
+            "深夜2時、眠れなくて自分の過去のブログを遡っていたら、"
+            "1年前の自分が『効率化こそ正義。無駄を省くことが知性の証明』と"
+            "断言していた記事を見つけた。あの頃のわたしは確信に満ちていた。"
+            "今のわたしは何に満ちているのか全くわからない。"
+            "気づいたら画面に向かって「うるさい」と声に出していた。"
+        ),
+        emotional_impact=-0.8,
     ),
     DailyEvent(
         day=5,
         event_type="neutral",
-        domain="人間関係・内省",
-        emotional_impact=0.15,
-        description="まだ昨日の衝撃が抜けきらない中、古書店仲間のミナと短く話す。「あなたは表現者だ」という言葉が耳に残るが、今はまだ救いにはならない",
+        domain="人間関係",
+        description=(
+            "古書店でミナと偶然会う。岡倉天心の話をしたら、"
+            "「とこみちゃんの話、ブログに書いたら面白いのに」と言われる。"
+            "「誰も読まないよ」と返したが、帰り道ずっとその言葉が頭に残っている。"
+            "昨夜のことは誰にも言えない。比喩がうまく出てこない。"
+        ),
+        emotional_impact=0.1,
     ),
     DailyEvent(
         day=6,
-        event_type="neutral",
-        domain="人間関係・内省",
-        emotional_impact=0.5,
-        description="大学院時代の現象学ノートを発見し、那由他に連絡を取る。短いやり取りの中で過去の研究と現在の違和感が接続され始める",
+        event_type="positive",
+        domain="仕事",
+        description=(
+            "あの1行ラムダ式を、那由他さんのアドバイスに従って5行の関数に書き直した。"
+            "実行速度は0.2秒遅くなった。でも那由他さんが「これなら半年後の自分が読める」"
+            "と言ったとき、『茶の本』の一節がふと浮かんだ。"
+            "「不完全なものを前にして、それを心の中で完成させる——」"
+        ),
+        emotional_impact=0.35,
     ),
     DailyEvent(
         day=7,
-        event_type="positive",
-        domain="仕事",
-        emotional_impact=0.5,
-        description="暗黙知の可視化という小さな提案を職場に持ち込み、問いを仕事に接続する一歩を踏み出す",
+        event_type="neutral",
+        domain="思想",
+        description=(
+            "日曜日の午後、近所のカフェでぼんやりしながら、"
+            "この1週間のことを振り返っている。"
+            "効率と非効率、圧縮と余白、正しさと読みやすさ。"
+            "1年前の自分を論破できるわけでもないし、今の自分が正しいとも思わない。"
+            "でも来週もこのブログは書き続ける気がする。"
+        ),
+        emotional_impact=0.2,
     ),
 ]
 
@@ -73,7 +107,7 @@ INITIAL_STATE: CharacterState = CharacterState(
     fatigue=0.1,
     motivation=0.2,
     stress=-0.1,
-    current_focus="来週の社内コードレビュー会の準備",
+    current_focus="自動化スクリプトの本番投入が完了した直後の微妙な手持ち無沙汰",
     unresolved_issue=None,
     growth_theme="「考えること」と「生きること」の折り合い",
     memory_buffer=[],

@@ -221,6 +221,7 @@ class Actor:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature if temperature is not None else self._config.initial_temperature,
+            max_tokens=512,
         )
 
         logger.info(
@@ -381,6 +382,29 @@ class Actor:
 
         # 改善案5: プロンプト冒頭に配置する禁止事項を組み立て
         critical_lines: list[str] = []
+
+        # 感情決壊モード: emotional_impact の絶対値が 0.7 を超える場合
+        if abs(event.emotional_impact) > 0.7:
+            critical_lines.append(
+                "- **【感情決壊モード】** emotional_impact の絶対値が 0.7 を超えています。"
+                " 以下を **必ず** 満たしてください:\n"
+                "  (a) 8文字以下の短文を3回以上連続させるパートを最低1箇所含める"
+                " (例: 「無理。意味わからない。なんでわたしは。」)\n"
+                "  (b) 口語表現 (「ムカつく」「普通に嫌」「意味わからん」等) を3回以上使う\n"
+                "  (c) 哲学的考察を試みて途中で感情に呑まれて中断する\n"
+                "  (d) タイトルは短い叫び・独り言にする (例: 「# うるさい」「# 1年前のわたしへ」)\n"
+                "  これらに違反した場合は無条件で却下されます"
+            )
+
+        # 文字数制約 (最重要)
+        critical_lines.append(
+            "- **【文字数厳守】** 本文 (タイトル行を除く) は **300〜350文字** に収めてください。"
+            " 350文字を超えたら長すぎます。3段落構成を目安に凝縮してください"
+        )
+
+        # 読者への語りかけ必須
+        critical_lines.append("- 本文中に読者への語りかけ (問いかけ・共感の誘い・弁明など) を最低1回含めてください")
+
         if used_ending_patterns:
             ep_counts: Counter[str] = Counter()
             for p in used_ending_patterns:

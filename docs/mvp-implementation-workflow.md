@@ -87,9 +87,11 @@ csdg/__init__.py には __version__ = "0.1.0" を定義してください。
 
 ### 3. .env.example の作成
 以下の環境変数テンプレートを作成:
-- CSDG_LLM_API_KEY=your-api-key-here
-- CSDG_LLM_MODEL=claude-sonnet-4-20250514
-- CSDG_LLM_BASE_URL=https://api.anthropic.com
+- CSDG_LLM_PROVIDER=anthropic
+- CSDG_ANTHROPIC_API_KEY=your-anthropic-api-key-here
+- CSDG_ANTHROPIC_MODEL=claude-sonnet-4-20250514
+- CSDG_GEMINI_API_KEY=your-gemini-api-key-here
+- CSDG_GEMINI_MODEL=gemini-2.0-flash
 - CSDG_MAX_RETRIES=3
 - CSDG_INITIAL_TEMPERATURE=0.7
 - CSDG_OUTPUT_DIR=output
@@ -318,7 +320,9 @@ pydantic-settings の BaseSettings を使用して CSDGConfig クラスを実装
 
 class CSDGConfig(BaseSettings):
     # LLM設定
-    llm_api_key: str  # 必須（環境変数 CSDG_LLM_API_KEY）
+    llm_provider: str = "anthropic"  # "anthropic" or "gemini"
+    anthropic_api_key: str  # Anthropic利用時に必須
+    gemini_api_key: str  # Gemini利用時に必須
     llm_model: str = "claude-sonnet-4-20250514"
     llm_base_url: str = "https://api.anthropic.com"
 
@@ -411,7 +415,7 @@ Phase 2（日記生成）の User Prompt。
 - 日記の構成（冒頭→展開→内省→余韻）
 - emotional_impact の大きさに応じた文体の変化指示
 - memory_buffer への自然な言及方法
-- 分量目安（800〜1500文字）
+- 分量目安（350〜450文字、タイトル除く）
 - 出力形式の指示（Markdownテキスト、JSONではない）
 - {revision_instruction} セクション（リトライ時のみ表示、空文字の場合は無視）
 
@@ -486,7 +490,7 @@ class LLMClient(ABC):
         system_prompt: str,
         user_prompt: str,
         temperature: float,
-        max_tokens: int = 4096,
+        max_tokens: int = 512,
     ) -> str:
         """プレーンテキスト生成。Phase 2 で使用。"""
         ...
@@ -980,7 +984,7 @@ tests/test_visualization.py を作成:
 ## MVP 動作確認
 すべての Phase が完了したら、以下で実際のパイプラインを実行してください:
 
-1. .env ファイルに CSDG_LLM_API_KEY を設定
+1. .env ファイルに CSDG_ANTHROPIC_API_KEY (または CSDG_GEMINI_API_KEY) を設定
 2. python -m csdg.main --verbose を実行
 3. output/ に day_01.md 〜 day_07.md, generation_log.json, state_trajectory.png が生成されることを確認
 4. 生成された日記を読み、ペルソナの一貫性を目視確認
