@@ -6,8 +6,6 @@ test-standards/SKILL.md の AAA パターンおよび命名規約に従う。
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from csdg.config import CriticWeights, CSDGConfig, StateTransitionConfig, VetoCaps
@@ -97,56 +95,26 @@ class TestEmotionSensitivityProperty:
 class TestTemperatureScheduleProperty:
     """temperature_schedule プロパティのテスト。"""
 
-    def test_default_schedule_exponential(self, config: CSDGConfig) -> None:
-        """デフォルト設定で指数減衰スケジュールを返す。"""
+    def test_piecewise_linear_schedule(self, config: CSDGConfig) -> None:
+        """区分線形スケジュールの固定値を返す。"""
         schedule = config.temperature_schedule
-        # 初回は initial_temperature
-        assert schedule[0] == pytest.approx(0.7)
-        # 最終は temperature_final に近づく (指数減衰)
-        assert schedule[-1] >= config.temperature_final
-        # 単調減少
+        assert schedule == [0.70, 0.60, 0.45, 0.30]
+
+    def test_schedule_monotonically_decreasing(self, config: CSDGConfig) -> None:
+        """スケジュールが単調減少である。"""
+        schedule = config.temperature_schedule
         for i in range(len(schedule) - 1):
             assert schedule[i] >= schedule[i + 1]
 
     def test_schedule_length(self, config: CSDGConfig) -> None:
-        """スケジュールの長さが max_retries と一致する。"""
-        assert len(config.temperature_schedule) == config.max_retries
+        """スケジュールの長さが4（固定）。"""
+        assert len(config.temperature_schedule) == 4
 
-    def test_custom_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """max_retries を変更するとスケジュールの長さが変わる。"""
-        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
-        monkeypatch.setenv("CSDG_MAX_RETRIES", "5")
-        cfg = CSDGConfig()
-        assert len(cfg.temperature_schedule) == 5
-        assert cfg.temperature_schedule[0] == pytest.approx(0.7)
-
-    def test_exponential_lower_than_linear_at_end(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """指数減衰が線形より終盤で低い値になることの検証。"""
-        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
-        monkeypatch.setenv("CSDG_MAX_RETRIES", "5")
-        cfg = CSDGConfig()
-
-        exp_schedule = cfg.temperature_schedule
-        # 同じパラメータで線形スケジュールを計算
-        linear_schedule = [
-            cfg.initial_temperature - (cfg.initial_temperature - cfg.temperature_final) * i / (cfg.max_retries - 1)
-            for i in range(cfg.max_retries)
-        ]
-
-        # 中間〜終盤で指数が線形以下 (指数は急速に減衰するため)
-        # 最終要素は両方とも final に近いが、中間要素で差が出る
-        assert exp_schedule[1] <= linear_schedule[1]
-
-    def test_exponential_formula_matches(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """指数減衰の計算式が正しいことの検証。"""
-        monkeypatch.setenv("CSDG_ANTHROPIC_API_KEY", "test-api-key")
-        monkeypatch.setenv("CSDG_TEMPERATURE_DECAY_CONSTANT", "1.5")
-        cfg = CSDGConfig()
-
-        schedule = cfg.temperature_schedule
-        for i, temp in enumerate(schedule):
-            expected = cfg.temperature_final + (cfg.initial_temperature - cfg.temperature_final) * math.exp(-1.5 * i)
-            assert temp == pytest.approx(expected)
+    def test_schedule_boundaries(self, config: CSDGConfig) -> None:
+        """初回は0.70、最終は0.30。"""
+        schedule = config.temperature_schedule
+        assert schedule[0] == pytest.approx(0.70)
+        assert schedule[-1] == pytest.approx(0.30)
 
 
 class TestEnvironmentVariables:

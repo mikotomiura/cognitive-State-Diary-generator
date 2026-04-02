@@ -7,8 +7,6 @@ architecture.md §5.2 および functional-design.md §5.4 の仕様に準拠す
 
 from __future__ import annotations
 
-import math
-
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
@@ -158,27 +156,14 @@ class CSDGConfig(BaseSettings):
 
     @property
     def temperature_schedule(self) -> list[float]:
-        """リトライ時の Temperature スケジュールを指数減衰で生成する。
+        """リトライ時の Temperature スケジュールを区分線形で返す。
 
-        指数減衰の利点:
-        - 序盤は探索的 (高temperature)、中盤以降は急速に安定
-        - 線形より終盤のブレが小さく、物語の着地が安定する
-
-        Formula::
-
-            temp = final + (initial - final) * exp(-decay_constant * i)
-
-        decay_constant のデフォルトは max_retries / 3
-        (リトライ数の1/3で初期振幅の約63%が減衰)。
+        区分線形の利点:
+        - 2回目リトライでも十分な多様性 (0.60) を維持
+        - 高インパクト日の「感情崩壊」文体に必要な表現幅を確保
+        - 終盤は確実に収束 (0.30) し、物語の着地が安定する
 
         Returns:
-            Temperature のリスト。例: [0.7, 0.447, 0.352]
+            Temperature のリスト: [0.70, 0.60, 0.45, 0.30]
         """
-        decay = self.temperature_decay_constant if self.temperature_decay_constant is not None else self.max_retries / 3
-        return [
-            round(
-                self.temperature_final + (self.initial_temperature - self.temperature_final) * math.exp(-decay * i),
-                10,
-            )
-            for i in range(self.max_retries)
-        ]
+        return [0.70, 0.60, 0.45, 0.30]

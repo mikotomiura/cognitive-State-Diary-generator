@@ -265,9 +265,11 @@ class TestTemperatureDecay:
 
         # 全3回分のスコアが記録されている
         assert len(record.critic_scores) == 3
-        # 最後に使用された temperature は schedule の最後
+        # 最後に使用された temperature は最終リトライのインデックスに対応
         schedule = config.temperature_schedule
-        assert record.temperature_used == pytest.approx(schedule[-1])
+        last_attempt_idx = config.max_retries - 1
+        expected_temp = schedule[last_attempt_idx] if last_attempt_idx < len(schedule) else schedule[-1]
+        assert record.temperature_used == pytest.approx(expected_temp)
 
 
 # ====================================================================
@@ -986,12 +988,13 @@ class TestPrevEndingsTracking:
         mock_actor.update_state.return_value = (updated_state, "テストreason")
 
         # Day ごとに完全に異なるテキストを返す (構造的制約違反を回避)
+        # 書き出し・余韻パターンが全Day で異なるようにする
         _unique_texts = [
-            "まるで空のように広がる朝の光景を眺めながら考えた一日目の物語が続く。\n\n静かな夜に星を見上げて思い出すあの日の約束。",
-            "古い日記帳を開いて過去の自分と対話する穏やかな二日目の午後である。\n\n窓辺に置かれた花瓶の水が光を反射していた。",
-            "雨上がりの街を歩きながら新しい発見に出会った三日目の散歩道の風景。\n\n傘を畳んで鞄にしまい電車に乗り込んだ。",
-            "窓辺に座って遠くの山を眺めながら哲学的な思索にふけった四日目の記録。\n\n珈琲の湯気が消えるまで本を読んでいた。",
-            "友人との久しぶりの再会が心に波紋を広げた五日目の夕暮れ時の記憶。\n\n手紙を書き終えて封筒に入れた。",
+            "まるで空のように広がる朝の光景を眺めながら考えた一日目の物語が続く。\n\nこれは本当に自分の選択なのだろうか......",
+            "「昨日の話だけど」と那由他が言った声が耳に残る二日目の午後である。\n\n窓辺に置かれた花瓶の水が光を反射していた。",
+            "雨上がりの街角で濡れた石畳の匂いが鼻をかすめた三日目の散歩道。\n\n傘を畳んで鞄にしまい、電車に乗り込んだ。",
+            "あの日のことを思い出す——窓辺に座って遠くの山を眺めていた四日目。\n\n珈琲の残り香。",
+            "効率とは何か——友人との再会が心に波紋を広げた五日目の夕暮れ時。\n\nそれは、ただの思い込みなのかもしれない。",
         ]
         day_idx = 0
 
@@ -1017,7 +1020,7 @@ class TestPrevEndingsTracking:
         # Day 2, 3, 4 の余韻が保持されている (Day 1 は window 外)
         assert "花瓶" in prev_endings[0]  # Day 2
         assert "電車" in prev_endings[1]  # Day 3
-        assert "珈琲" in prev_endings[2]  # Day 4
+        assert "珈琲" in prev_endings[2]  # Day 4: 体言止め系
 
 
 # ====================================================================
@@ -1608,6 +1611,58 @@ class TestValidateStructuralConstraints:
             theme_word_totals={"効率": 10},
         )
         assert len(violations) >= 2
+
+    def test_ending_pattern_strict_limit_early_days(self) -> None:
+        """Day 1-5 では余韻パターンが1回で上限到達する。"""
+        text = "段落1。\n\nこの本は何を知っているのだろう......"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=["Day 1: 〜だろう系"],
+            used_structures=[],
+            used_openings=[],
+            theme_word_totals={},
+            current_day=3,
+        )
+        assert any("〜だろう系" in v for v in violations)
+
+    def test_ending_pattern_relaxed_limit_late_days(self) -> None:
+        """Day 6-7 では余韻パターンが1回使用でも許容される。"""
+        text = "段落1。\n\nこの本は何を知っているのだろう......"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=["Day 1: 〜だろう系"],
+            used_structures=[],
+            used_openings=[],
+            theme_word_totals={},
+            current_day=6,
+        )
+        assert not any("〜だろう系" in v for v in violations)
+
+    def test_opening_pattern_strict_limit_early_days(self) -> None:
+        """Day 1-5 では書き出しパターンが1回で上限到達する。"""
+        text = "今日は、まるで嵐のような一日だった。段落。\n\nゆっくりと深呼吸をした。"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=[],
+            used_structures=[],
+            used_openings=["Day 1: 比喩型"],
+            theme_word_totals={},
+            current_day=4,
+        )
+        assert any("比喩型" in v for v in violations)
+
+    def test_opening_pattern_relaxed_limit_late_days(self) -> None:
+        """Day 6-7 では書き出しパターンが1回使用でも許容される。"""
+        text = "今日は、まるで嵐のような一日だった。段落。\n\nゆっくりと深呼吸をした。"
+        violations = _validate_structural_constraints(
+            text,
+            used_ending_patterns=[],
+            used_structures=[],
+            used_openings=["Day 1: 比喩型"],
+            theme_word_totals={},
+            current_day=7,
+        )
+        assert not any("比喩型" in v for v in violations)
 
 
 class TestConstants:

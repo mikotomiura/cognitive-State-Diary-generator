@@ -162,6 +162,7 @@ class Actor:
         prev_rhetorical: list[str] | None = None,
         scene_marker_days: dict[str, int] | None = None,
         prev_openings_text: list[str] | None = None,
+        prev_endings_text: list[str] | None = None,
     ) -> str:
         """Phase 2: 更新された状態に基づきブログ日記本文を生成する。
 
@@ -185,6 +186,7 @@ class Actor:
             prev_rhetorical: 過去の修辞疑問文。反復回避のためプロンプトに注入する。
             scene_marker_days: シーンマーカーの出現日数。反復回避のためプロンプトに注入する。
             prev_openings_text: 過去の冒頭テキストリスト。テキストレベル重複回避のためプロンプトに注入する。
+            prev_endings_text: 過去の余韻テキストリスト。テキストレベル重複回避のためプロンプトに注入する。
 
         Returns:
             生成されたブログ日記テキスト (Markdown)。
@@ -209,6 +211,7 @@ class Actor:
             prev_rhetorical,
             scene_marker_days,
             prev_openings_text,
+            prev_endings_text,
         )
 
         logger.debug(
@@ -297,6 +300,7 @@ class Actor:
         prev_rhetorical: list[str] | None = None,
         scene_marker_days: dict[str, int] | None = None,
         prev_openings_text: list[str] | None = None,
+        prev_endings_text: list[str] | None = None,
     ) -> str:
         """Phase 2 用の User Prompt を構築する。
 
@@ -318,6 +322,7 @@ class Actor:
             prev_rhetorical: 過去の修辞疑問文。
             scene_marker_days: シーンマーカーの出現日数。
             prev_openings_text: 過去の冒頭テキストリスト。
+            prev_endings_text: 過去の余韻テキストリスト。
 
         Returns:
             展開済みの User Prompt テキスト。
@@ -357,8 +362,8 @@ class Actor:
             for o in used_openings:
                 if ": " in o:
                     opening_counts[o.split(": ", 1)[1]] += 1
-            opening_limits: dict[str, int] = {"比喩型": 2}
-            default_opening_limit = 3
+            default_opening_limit = 1 if event.day <= 5 else 2
+            opening_limits: dict[str, int] = {}
             # 未使用パターンを優先的に推奨 (余韻パターンと同方式)
             available_opening_patterns: list[str] = []
             unused_opening_patterns: list[str] = []
@@ -549,16 +554,17 @@ class Actor:
             for p in used_ending_patterns:
                 if ": " in p:
                     pattern_counts[p.split(": ", 1)[1]] += 1
-            # 使用可能パターンの計算 (上限2回)
+            # 使用可能パターンの計算 (Day 1-5: 各1回, Day 6-7: 各2回)
             # 未使用パターンを優先的に推奨
+            ep_limit = 1 if event.day <= 5 else 2
             available_patterns: list[str] = []
             unused_patterns: list[str] = []
             for ep_name, example in ENDING_PATTERN_EXAMPLES.items():
                 cnt = pattern_counts.get(ep_name, 0)
                 if cnt == 0:
                     unused_patterns.append(f"- **{ep_name}** (未使用・推奨): {example}")
-                elif cnt < 2:
-                    available_patterns.append(f"- {ep_name} (残り{2 - cnt}回): {example}")
+                elif cnt < ep_limit:
+                    available_patterns.append(f"- {ep_name} (残り{ep_limit - cnt}回): {example}")
             # 未使用パターンを先に配置して優先度を明示
             available_patterns = unused_patterns + available_patterns
             diversity_note = ""
@@ -654,6 +660,17 @@ class Actor:
                 "**これらと同じ文・同じフレーズで書き出すことは絶対に禁止です。**\n"
                 "パターンが同じでも、テキストは完全に異なるものにしてください。\n"
                 f"{opening_texts}"
+            )
+
+        # 過去の余韻テキスト注入 (テキストレベル重複禁止)
+        if prev_endings_text:
+            ending_texts = "\n".join(f"- Day {i + 1}: 「{t}」" for i, t in enumerate(prev_endings_text))
+            prompt += (
+                "\n\n---\n\n## 過去の余韻テキスト (テキストレベル重複禁止)\n"
+                "以下は過去の日記の余韻(末尾)です。\n"
+                "**これらと同じ文・同じフレーズで締めくくることは絶対に禁止です。**\n"
+                "語彙・構文・リズムのいずれかが明確に異なる余韻を使用してください。\n"
+                f"{ending_texts}"
             )
 
         if long_term_context:

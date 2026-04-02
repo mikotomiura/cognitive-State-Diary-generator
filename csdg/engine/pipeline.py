@@ -457,6 +457,7 @@ def _validate_structural_constraints(
     prev_openings_text: list[str] | None = None,
     prev_endings_text: list[str] | None = None,
     prev_diary_texts: list[str] | None = None,
+    current_day: int = 7,
 ) -> list[str]:
     """生成された日記の構造的制約違反を検出する。
 
@@ -471,6 +472,8 @@ def _validate_structural_constraints(
         theme_word_totals: 主題語の累計使用回数。
         prev_openings_text: 過去の冒頭テキストリスト (trigram 重複チェック用)。
         prev_endings_text: 過去の余韻テキストリスト (trigram 重複チェック用)。
+        prev_diary_texts: 過去の日記テキストリスト (フレーズ重複チェック用)。
+        current_day: 現在のDay番号 (1-7)。Day 1-5 はパターン上限を厳格化する。
 
     Returns:
         違反メッセージのリスト。空の場合は制約をすべて満たしている。
@@ -484,10 +487,11 @@ def _validate_structural_constraints(
         if ": " in p:
             name = p.split(": ", 1)[1]
             ep_counts[name] = ep_counts.get(name, 0) + 1
-    if ending_pattern != "その他" and ep_counts.get(ending_pattern, 0) >= 2:
-        available = [n for n in ENDING_PATTERN_EXAMPLES if ep_counts.get(n, 0) < 2 and n != ending_pattern]
+    ep_limit = 1 if current_day <= 5 else 2
+    if ending_pattern != "その他" and ep_counts.get(ending_pattern, 0) >= ep_limit:
+        available = [n for n in ENDING_PATTERN_EXAMPLES if ep_counts.get(n, 0) < ep_limit and n != ending_pattern]
         alt = f" 代わりに{'か'.join(available[:3])}を使ってください。" if available else ""
-        violations.append(f"余韻が「{ending_pattern}」ですが既に2回使用済みです。{alt}")
+        violations.append(f"余韻が「{ending_pattern}」ですが既に{ep_limit}回使用済みです。{alt}")
 
     # 2. 場面構造の連続使用チェック
     structure = _detect_structure_pattern(diary_text)
@@ -523,8 +527,7 @@ def _validate_structural_constraints(
         if ": " in o:
             name = o.split(": ", 1)[1]
             op_counts[name] = op_counts.get(name, 0) + 1
-    opening_limits: dict[str, int] = {"比喩型": 2}
-    op_limit = opening_limits.get(opening, 3)
+    op_limit = 1 if current_day <= 5 else 2
     if opening != "その他" and op_counts.get(opening, 0) >= op_limit:
         violations.append(
             f"書き出し「{opening}」は既に{op_counts[opening]}回使用 (上限{op_limit}回)。別パターンにしてください。"
@@ -986,6 +989,7 @@ class PipelineRunner:
                 prev_rhetorical=prev_rhetorical,
                 scene_marker_days=scene_marker_days,
                 prev_openings_text=prev_openings_text,
+                prev_endings_text=prev_endings_text,
             )
             phase2_ms = int((time.monotonic() - phase2_start) * 1000)
             phase2_total_ms += phase2_ms
@@ -1001,6 +1005,7 @@ class PipelineRunner:
                 prev_openings_text=prev_openings_text,
                 prev_endings_text=prev_endings_text,
                 prev_diary_texts=prev_diary_texts,
+                current_day=day,
             )
             if structural_violations:
                 logger.warning(
