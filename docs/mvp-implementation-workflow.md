@@ -248,13 +248,13 @@ already.
 docs/functional-design.md §8.2 の感情パラメータ想定推移テーブルに基づき、
 以下の7日分のイベントを定義してください:
 
-- Day 1: neutral / 仕事 / impact=+0.2 — 自動化スクリプト完成、手持ち無沙汰
-- Day 2: positive / 趣味 / impact=+0.6 — 古書店で西田幾多郎の初版本を発見
-- Day 3: negative / 仕事 / impact=-0.5 — コードレビュー会でPMに一蹴される
-- Day 4: negative / 仕事・思想 / impact=-0.9 — 全社会議のAI自動化ロードマップ、感情爆発
-- Day 5: neutral / 人間関係・内省 / impact=+0.4 — ミナとの会話、「表現者」の指摘
-- Day 6: neutral / 内省・思想 / impact=+0.5 — 大学院時代のノート発見、過去と接続
-- Day 7: positive / 仕事 / impact=+0.5 — 暗黙知の可視化提案、小さな一歩
+- Day 1: neutral / 仕事 / impact=-0.15 — 自動化スクリプト完成、空虚感
+- Day 2: positive / 趣味 / impact=+0.5 — 古書店で岡倉天心『茶の本』初版を発見
+- Day 3: negative / 仕事 / impact=-0.4 — コードレビューで「動くけど読めない」と指摘
+- Day 4: negative / 内省 / impact=-0.8 — 深夜の過去ブログ遡り、過去の自分との対峙
+- Day 5: positive / 人間関係 / impact=+0.3 — ミナとの偶然の再会、「ブログに書いたら」
+- Day 6: positive / 仕事 / impact=+0.35 — ラムダ式を関数に書き直し、『茶の本』の一節
+- Day 7: positive / 思想 / impact=+0.25 — カフェで1週間の振り返り、問いの継続
 
 各イベントの description は、アーキテクチャ文書のシナリオ設計セクションの
 記述を参考に、客観的な出来事として10文字以上で記述してください。

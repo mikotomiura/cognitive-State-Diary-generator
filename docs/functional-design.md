@@ -248,7 +248,7 @@ Verbose モード（`--verbose`）:
 [CSDG] Config: model=claude-sonnet-4-20250514, max_retries=3, initial_temp=0.7
 [CSDG] Loaded 7 events from scenario.py
 [CSDG] Initial state h_0: fatigue=0.1, motivation=0.2, stress=-0.1
-[Day 1] Event: neutral/仕事 (impact=+0.2)
+[Day 1] Event: neutral/仕事 (impact=-0.15)
 [Day 1] Phase 1: Prompt tokens=1,234 / Completion tokens=256
 [Day 1] Phase 1: h_1 = {fatigue: 0.06, motivation: 0.28, stress: -0.05}
 [Day 1] Phase 2: Prompt tokens=1,567 / Completion tokens=1,023
@@ -287,7 +287,7 @@ initial_state = CharacterState(
     fatigue=0.1,
     motivation=0.2,
     stress=-0.1,
-    current_focus="来週の社内コードレビュー会の準備",
+    current_focus="自動化スクリプトの本番投入が完了した直後の微妙な手持ち無沙汰",
     unresolved_issue=None,
     growth_theme="「考えること」と「生きること」の折り合い",
     memory_buffer=[],
@@ -508,33 +508,33 @@ Day 1-2: 日常（導入・対比の確立）
 Day 3: 摩擦（衝突）
   └─ 「問いを立てること」が非効率として一蹴される
 
-Day 4: 転機（発狂・イデオロギーへの反発）
-  └─ 個人の問題が社会全体のイデオロギーへの問いに接続
-  └─ emotional_impact: -0.9（システムのストレステスト）
+Day 4: 転機（過去の自分との対峙）
+  └─ 深夜の過去ブログ遡りで、確信に満ちていた過去の自分と向き合う
+  └─ emotional_impact: -0.8（システムのストレステスト）
 
 Day 5-6: 揺らぎ（回復と接続）
-  └─ ミナによる「表現者」としての肯定
-  └─ 過去の研究との論理的接続
+  └─ ミナとの偶然の再会と「ブログに書いたら」の一言
+  └─ ラムダ式の書き直しと『茶の本』の一節による気づき
 
 Day 7: 着地（問いとしての着地）
-  └─ 劇的な解決ではなく「問いを仕事に持ち込めた」小さな一歩
+  └─ カフェでの振り返り、答えは出ないが書き続ける意志
 ```
 
 ### 8.2 感情パラメータ想定推移
 
 | Day | event_type | emotional_impact | stress | motivation | 物語上の役割 |
 |---|---|---|---|---|---|
-| 1 | neutral | +0.2 | 低 | 停滞 | 導入 — 違和感の種 |
-| 2 | positive | +0.6 | 低下 | 上昇 | 対比 — 非効率な喜び |
-| 3 | negative | -0.5 | 上昇 | 低下 | 摩擦 — 職場での衝突 |
-| **4** | **negative** | **-0.9** | **最大** | **最低** | **転機 — 発狂・イデオロギー反発** |
-| 5 | neutral | +0.4 | 緩和 | 複雑 | 揺らぎ — 表現者としての自覚 |
-| 6 | neutral | +0.5 | 横ばい | 回復 | 揺らぎ — 過去と現在の接続 |
-| 7 | positive | +0.5 | 低下 | 回復 | 着地 — 問いとしての着地 |
+| 1 | neutral | -0.15 | 低 | 停滞 | 導入 — 違和感の種 |
+| 2 | positive | +0.5 | 低下 | 上昇 | 対比 — 非効率な喜び |
+| 3 | negative | -0.4 | 上昇 | 低下 | 摩擦 — 職場での衝突 |
+| **4** | **negative** | **-0.8** | **最大** | **最低** | **転機 — 過去の自分との対峙** |
+| 5 | positive | +0.3 | 緩和 | 複雑 | 揺らぎ — ミナとの再会 |
+| 6 | positive | +0.35 | 横ばい | 回復 | 揺らぎ — 実務と美意識の接続 |
+| 7 | positive | +0.25 | 低下 | 回復 | 着地 — 問いとしての着地 |
 
 ### 8.3 Day 4 ストレステスト仕様
 
-Day 4 は `emotional_impact: -0.9` であり、システムにとって以下のストレステストとして機能する:
+Day 4 は `emotional_impact: -0.8` であり、システムにとって以下のストレステストとして機能する:
 
 | テスト観点 | 確認内容 |
 |---|---|
