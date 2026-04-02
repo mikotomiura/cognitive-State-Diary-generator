@@ -48,8 +48,8 @@ class TestCSDGConfigDefaults:
         assert config.memory_window_size == 3
 
     def test_emotion_sensitivity_stress_default(self, config: CSDGConfig) -> None:
-        """emotion_sensitivity_stress のデフォルト値が -0.3 である。"""
-        assert config.emotion_sensitivity_stress == -0.3
+        """emotion_sensitivity_stress のデフォルト値が -0.45 である。"""
+        assert config.emotion_sensitivity_stress == -0.45
 
     def test_emotion_sensitivity_motivation_default(self, config: CSDGConfig) -> None:
         """emotion_sensitivity_motivation のデフォルト値が 0.4 である。"""
@@ -70,7 +70,7 @@ class TestEmotionSensitivityProperty:
     def test_returns_correct_dict(self, config: CSDGConfig) -> None:
         """emotion_sensitivity が正しい辞書を返す。"""
         expected = {
-            "stress": -0.3,
+            "stress": -0.45,
             "motivation": 0.4,
             "fatigue": -0.2,
         }
@@ -210,8 +210,8 @@ class TestStateTransitionProperty:
     def test_returns_state_transition_config(self, config: CSDGConfig) -> None:
         st = config.state_transition
         assert isinstance(st, StateTransitionConfig)
-        assert st.decay_rate == 0.1
-        assert st.event_weight == 0.6
+        assert st.decay_rate == 0.15
+        assert st.event_weight == 0.75
 
 
 class TestApiKeyExcluded:

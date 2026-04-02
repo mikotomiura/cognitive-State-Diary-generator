@@ -21,9 +21,10 @@ SCENARIO: list[DailyEvent] = [
         description=(
             "自動化スクリプトが完璧に動いた。手作業で30分かかっていた日次集計が"
             "3秒で終わる。チームは喜んでいるが、とこみは画面に並ぶグリーンのチェックマークを"
-            "見ながら、妙な空虚感を覚える。「効率化ってこういうことだったっけ」"
+            "見ながら、妙な空虚感を覚える。"
+            "「わたしの30分は、3秒の価値しかなかったのか」"
         ),
-        emotional_impact=0.15,
+        emotional_impact=-0.15,
     ),
     DailyEvent(
         day=2,
@@ -62,15 +63,15 @@ SCENARIO: list[DailyEvent] = [
     ),
     DailyEvent(
         day=5,
-        event_type="neutral",
+        event_type="positive",
         domain="人間関係",
         description=(
             "古書店でミナと偶然会う。岡倉天心の話をしたら、"
             "「とこみちゃんの話、ブログに書いたら面白いのに」と言われる。"
             "「誰も読まないよ」と返したが、帰り道ずっとその言葉が頭に残っている。"
-            "昨夜のことは誰にも言えない。比喩がうまく出てこない。"
+            "「昨夜のことは誰にも言えない。けれど、ミナの前では不思議と言葉が出てきた。」"
         ),
-        emotional_impact=0.1,
+        emotional_impact=0.3,
     ),
     DailyEvent(
         day=6,
@@ -86,7 +87,7 @@ SCENARIO: list[DailyEvent] = [
     ),
     DailyEvent(
         day=7,
-        event_type="neutral",
+        event_type="positive",
         domain="思想",
         description=(
             "日曜日の午後、近所のカフェでぼんやりしながら、"
@@ -95,7 +96,7 @@ SCENARIO: list[DailyEvent] = [
             "1年前の自分を論破できるわけでもないし、今の自分が正しいとも思わない。"
             "でも来週もこのブログは書き続ける気がする。"
         ),
-        emotional_impact=0.2,
+        emotional_impact=0.25,
     ),
 ]
 

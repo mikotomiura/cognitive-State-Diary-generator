@@ -74,7 +74,7 @@ class CSDGConfig(BaseSettings):
     memory_window_size: int = 3
 
     # 感情感度係数
-    emotion_sensitivity_stress: float = -0.3
+    emotion_sensitivity_stress: float = -0.45
     emotion_sensitivity_motivation: float = 0.4
     emotion_sensitivity_fatigue: float = -0.2
 
@@ -84,8 +84,8 @@ class CSDGConfig(BaseSettings):
     critic_weight_llm_judge: float = 0.25
 
     # 状態遷移設定
-    state_transition_decay_rate: float = 0.1
-    state_transition_event_weight: float = 0.6
+    state_transition_decay_rate: float = 0.15
+    state_transition_event_weight: float = 0.75
     state_transition_llm_weight: float = 0.3
     state_transition_noise_scale: float = 0.05
     state_transition_max_llm_delta: float = 0.3

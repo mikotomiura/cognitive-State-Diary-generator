@@ -359,18 +359,30 @@ class Actor:
                     opening_counts[o.split(": ", 1)[1]] += 1
             opening_limits: dict[str, int] = {"比喩型": 2}
             default_opening_limit = 3
+            # 未使用パターンを優先的に推奨 (余韻パターンと同方式)
             available_opening_patterns: list[str] = []
+            unused_opening_patterns: list[str] = []
             for op_name, example in OPENING_PATTERN_EXAMPLES.items():
                 limit = opening_limits.get(op_name, default_opening_limit)
                 cnt = opening_counts.get(op_name, 0)
-                if cnt < limit:
+                if cnt == 0:
+                    unused_opening_patterns.append(f"- **{op_name}** (未使用・推奨): {example}")
+                elif cnt < limit:
                     remaining = limit - cnt
-                    available_opening_patterns.append(f"- **{op_name}** (残り{remaining}回): {example}")
+                    available_opening_patterns.append(f"- {op_name} (残り{remaining}回): {example}")
+            # 未使用パターンを先に配置して優先度を明示
+            available_opening_patterns = unused_opening_patterns + available_opening_patterns
+            diversity_note = ""
+            if unused_opening_patterns:
+                diversity_note = (
+                    "\n**多様性のため、まだ使っていないパターン"
+                    " (「未使用・推奨」) を優先的に選んでください。**\n"
+                )
             openings_section = (
                 "## 書き出しパターンの指定\n"
                 f"過去の使用状況:\n{openings_text}\n\n"
                 "**【必須】今日の書き出しは、以下の使用可能パターンのいずれかで"
-                "始めてください:**\n" + "\n".join(available_opening_patterns)
+                "始めてください:**\n" + diversity_note + "\n".join(available_opening_patterns)
             )
         else:
             all_ops = [f"- **{op_name}**: {example}" for op_name, example in OPENING_PATTERN_EXAMPLES.items()]

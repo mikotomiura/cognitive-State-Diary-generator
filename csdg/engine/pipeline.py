@@ -102,8 +102,38 @@ _SCENE_MARKERS = (
 
 # 書き出しパターン分類用キーワード
 _OPENING_METAPHOR_KEYWORDS = ("まるで", "のような", "ように")
-_OPENING_SENSORY_KEYWORDS = ("匂い", "音", "光", "温度", "風", "空気", "肌", "声")
-_OPENING_RECALL_KEYWORDS = ("あの頃", "あの日", "大学院", "昔", "思い出", "記憶")
+_OPENING_SENSORY_KEYWORDS = (
+    "匂い",
+    "音",
+    "光",
+    "温度",
+    "風",
+    "空気",
+    "肌",
+    "声",
+    "冷たい",
+    "暗い",
+    "静か",
+    "沈黙",
+    "色",
+    "影",
+    "熱",
+    "暖かい",
+    "湿",
+)
+_OPENING_RECALL_KEYWORDS = (
+    "あの頃",
+    "あの日",
+    "大学院",
+    "昔",
+    "思い出",
+    "記憶",
+    "かつて",
+    "当時",
+    "以前",
+    "去年",
+    "1年前",
+)
 
 # 場面構造パターンのマーカー (検出優先順: 古書店型 > 会議型 > 帰路型)
 _STRUCTURE_PATTERNS: dict[str, tuple[str, ...]] = {
@@ -246,7 +276,14 @@ def _detect_opening_pattern(diary_text: str) -> str:
         return "比喩型"
     if head.startswith(("\u300c", "\u300e")):  # 「 or 『
         return "会話型"
-    if head.endswith(("?", "\uff1f", "\u3060\u308d\u3046\u304b")) or re.search(r"だろう[。\s]*$", head):
+    if (
+        head.endswith(("?", "\uff1f", "\u3060\u308d\u3046\u304b"))
+        or re.search(r"\u3060\u308d\u3046[\u3002\s]*$", head)
+        or re.search(
+            r"(\u3060\u308d\u3046\u304b|\u3067\u3059\u304b|\u307e\u305b\u3093\s*\u304b)[\u3002\uff1f?\s]",
+            head,
+        )
+    ):
         return "問い型"
     # 断片型: 句点区切りの短いフレーズが3つ以上 (五感型・回想型より優先)
     if first_line:
