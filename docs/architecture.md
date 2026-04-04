@@ -703,8 +703,10 @@ class PipelineLog(BaseModel):
 - LLM API呼び出し（`LLMClient` 経由）
 
 #### `engine/critic.py` — Critic
-- Phase 3: `evaluate(state, diary_text, event, expected_delta, deviation, persona, prompt) -> CriticScore`
-- `judge(score) -> bool` — Pass/Reject判定
+- Phase 3: `Critic.evaluate_full(prev_state, curr_state, diary_text, event, prev_diary?, prev_day_ending?) -> CriticResult`
+- `CriticPipeline.evaluate(prev_state, curr_state, diary_text, event, prev_diary?, prev_day_ending?) -> CriticResult`
+- `LLMJudge.evaluate(diary_text, prev_state, curr_state, event, expected_delta, deviation, layer1_result, layer2_result, prev_day_ending?) -> (LayerScore, float)`
+- `judge(score) -> bool` — Pass/Reject判定（hook_strength は参照しない）
 - `compute_expected_delta(event) -> dict`
 - `compute_deviation(prev, curr, expected) -> dict`
 
@@ -770,8 +772,11 @@ class PipelineLog(BaseModel):
          + "## 評価対象の日記" + D_t
          + "## 今日の状態" + h_t.model_dump_json()
          + "## 今日のイベント" + x_t.model_dump_json()
+         + "## 人間的コンディション" + human_condition
          + "## 期待変動幅" + expected_delta (JSON)
          + "## 実際の変動幅と乖離" + deviation (JSON)
+         + "## 前日の末尾テキスト" + prev_day_ending (フック回収検証用)
+         + "## Layer 1/2 事前検証結果" + layer_results
 ```
 
 ### 6.2 プロンプトのテンプレート展開
