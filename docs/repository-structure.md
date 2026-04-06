@@ -149,20 +149,24 @@ cognitive-State-Diary-generator/
 ### 2.2 `.env.example` の内容
 
 ```env
-# LLM プロバイダー設定
+# --- LLM Provider ("anthropic" or "gemini") ---
 CSDG_LLM_PROVIDER=anthropic
-CSDG_ANTHROPIC_API_KEY=your-anthropic-api-key-here
-CSDG_ANTHROPIC_MODEL=claude-sonnet-4-20250514
-CSDG_GEMINI_API_KEY=your-gemini-api-key-here
-CSDG_GEMINI_MODEL=gemini-2.0-flash
 
-# パイプライン設定
+# --- Anthropic ---
+CSDG_ANTHROPIC_API_KEY=your-anthropic-api-key
+CSDG_ANTHROPIC_MODEL=claude-sonnet-4-20250514
+CSDG_ANTHROPIC_BASE_URL=https://api.anthropic.com
+
+# --- Gemini ---
+CSDG_GEMINI_API_KEY=your-gemini-api-key
+CSDG_GEMINI_MODEL=gemini-2.0-flash
+CSDG_GEMINI_FALLBACK_MODELS=gemini-2.0-flash-lite
+
+# --- Pipeline ---
 CSDG_MAX_RETRIES=3
 CSDG_INITIAL_TEMPERATURE=0.7
 CSDG_OUTPUT_DIR=output
-
-# 感情感度係数
-CSDG_EMOTION_SENSITIVITY_STRESS=-0.3
+CSDG_EMOTION_SENSITIVITY_STRESS=-0.45
 CSDG_EMOTION_SENSITIVITY_MOTIVATION=0.4
 CSDG_EMOTION_SENSITIVITY_FATIGUE=-0.2
 ```
