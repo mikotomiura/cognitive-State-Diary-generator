@@ -272,7 +272,7 @@ def validate_state_transition(prev: CharacterState, curr: CharacterState, event:
 |---|---|---|
 | `response_format` | `CharacterState` (Structured Outputs) | JSONスキーマ準拠を強制 |
 | `temperature` | 0.7（初回）→ Temperature Decay | リトライ時に段階的に下げる |
-| `max_tokens` | 1024 | 状態JSONは比較的短い |
+| `max_tokens` | 4096 | tool_use パターンのデフォルト値 |
 
 **Self-Healing:**
 ```
@@ -345,11 +345,11 @@ ValidationError 発生
 
 ```python
 # プログラム側で算出（LLMには依存しない）
-def compute_expected_delta(event: DailyEvent) -> dict[str, float]:
+def compute_expected_delta(event: DailyEvent, sensitivity: dict[str, float]) -> dict[str, float]:
     """イベントの emotional_impact から各パラメータの期待変動幅を算出する。"""
     return {
-        param: event.emotional_impact * sensitivity
-        for param, sensitivity in EMOTION_SENSITIVITY.items()
+        param: event.emotional_impact * coeff
+        for param, coeff in sensitivity.items()
     }
 
 def compute_deviation(prev: CharacterState, curr: CharacterState, expected: dict[str, float]) -> dict[str, float]:
@@ -379,7 +379,7 @@ CriticPipeline:
     - わたし使用頻度 (段階化: sweet [4-6] +1.0 / acceptable [2-8] +0.5 / overuse >8 -1.0)
     - 余韻「......」使用頻度 (段階化: sweet [2-3] +1.0 / acceptable +0.5)
     - 前日との重複率 (段階化: <0.10 +1.0 / <0.15 +0.5 / >0.30 -1.5)
-    - 感情 deviation 5段階評価 (増強ペナルティ: >=0.12 → -1.0)
+    - 感情 deviation 6段階評価 (<0.05 +1.5 / <0.08 +1.0 / <0.12 +0.5 / <0.15 +0.25 / <0.20 ±0 / >=0.20 -0.5)
     - 禁止表現・禁止一人称・余韻 trigram 類似度
     - has_critical_failure(): 致命的違反の検出 → Veto権発動
 
@@ -388,7 +388,7 @@ CriticPipeline:
     - 句読点頻度 (段階化: sweet [0.070-0.080] +1.0 / acceptable [0.060-0.090] +0.5)
     - 文数 (段階化: sweet [35-45] +1.0 / acceptable [30-50] +0.5)
     - 疑問文比率 (段階化: sweet [0.06-0.10] +1.0 / acceptable [0.05-0.15] +0.5)
-    - deviation 連続スケーリング (増強ペナルティ: 0.25-0.40 → -1.0)
+    - deviation 7段階連続スケーリング (<0.08 +1.5 / <0.12 +1.0 / <0.18 +0.5 / <0.30 ±0 / <0.40 -0.5 / <0.60 -1.0 / >=0.60 -2.5)
     - 断定文比率・高インパクト日文体検証 (短文連打・口語混入・哲学中断)
 
   Layer 3: LLMJudge (定性評価, 重み 0.25)
@@ -514,7 +514,7 @@ best = max(candidates, key=lambda c: c.total_score)
 | 範囲外の感情値 | Phase 1 出力 | カスタムバリデータ | `clamp(-1.0, value, 1.0)` で正規化 |
 | memory_buffer 超過 | Phase 1 出力 | `len()` チェック | 末尾3件に切り詰め |
 | Critic全スコア不合格 | Phase 3 出力 | `judge()` 関数 | リトライ → Best-of-N |
-| API レートリミット | 全Phase | `RateLimitError` | 指数バックオフ（2^n秒、最大60秒） |
+| API 過負荷 | 全Phase | `OverloadedError` | 指数バックオフ（ベース30秒 × 2^n、最大3回） |
 | API タイムアウト | 全Phase | `Timeout` | リトライ（最大3回） |
 | 予期しない例外 | 全箇所 | `Exception` | ログ記録 + 該当Dayスキップ + 次Dayへ |
 
@@ -723,7 +723,7 @@ class PipelineLog(BaseModel):
 - シーンマーカー閾値 (`SCENE_MARKER_SOFT_DAYS` / `HARD_DAYS`)
 
 #### `engine/actor.py` — Actor
-- Phase 1: `update_state(prev_state, event, long_term_context?) -> CharacterState`
+- Phase 1: `update_state(prev_state, event, long_term_context?) -> tuple[CharacterState, str]`  (状態 + delta理由)
 - Phase 2: `generate_diary(state, event, revision?, long_term_context?, temperature?, prev_endings?, prev_images?, used_openings?, used_structures?, used_philosophers?, used_ending_patterns?, theme_word_totals?, prev_rhetorical?, scene_marker_days?, prev_openings_text?, prev_endings_text?, prev_day_ending?, structural_violations?) -> str`
 - プロンプトの読み込みとテンプレート展開
 - `prev_images`/`used_openings`/`prev_endings`/`used_ending_patterns`/`theme_word_totals`/`prev_rhetorical`/`prev_day_ending` のプロンプト注入セクション構築
@@ -735,7 +735,7 @@ class PipelineLog(BaseModel):
 - `CriticPipeline.evaluate(prev_state, curr_state, diary_text, event, prev_diary?, prev_day_ending?) -> CriticResult`
 - `LLMJudge.evaluate(diary_text, prev_state, curr_state, event, expected_delta, deviation, layer1_result, layer2_result, prev_day_ending?) -> (LayerScore, float)`
 - `judge(score) -> bool` — Pass/Reject判定（hook_strength は参照しない）
-- `compute_expected_delta(event) -> dict`
+- `compute_expected_delta(event, sensitivity) -> dict`
 - `compute_deviation(prev, curr, expected) -> dict`
 
 #### `engine/pipeline.py` — パイプライン制御
@@ -771,6 +771,7 @@ class PipelineLog(BaseModel):
          + "## 前日の状態" + h_{t-1}.model_dump_json()
          + "## 今日のイベント" + x_t.model_dump_json()
          + "## エピソード記憶" + memory_buffer の内容
+         + (長期記憶あり) "## 長期記憶" + beliefs/themes/turning_points
 ```
 
 **Phase 2 (Content Generation):**
@@ -837,13 +838,20 @@ def load_prompt(path: str, **kwargs: str) -> str:
 ```markdown
 ---
 day: 1
-date: "生成日時"
-event_type: neutral
-domain: 仕事
-emotional_impact: 0.2
-stress: -0.05
-motivation: 0.28
-fatigue: 0.06
+generated_at: "2026-04-06T12:00:00+00:00"
+event_type: "neutral"
+domain: "仕事"
+emotional_impact: -0.15
+state:
+  fatigue: 0.06
+  motivation: 0.28
+  stress: -0.05
+  current_focus: "自動化スクリプトの本番投入が完了した直後の..."
+  growth_theme: "「考えること」と「生きること」の折り合い"
+critic_score:
+  temporal_consistency: 4
+  emotional_plausibility: 4
+  persona_deviation: 5
 retry_count: 0
 fallback_used: false
 ---
