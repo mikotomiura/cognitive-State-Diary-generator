@@ -207,7 +207,7 @@ csdg/
     state_transition.py   # 半数式化された状態遷移 (decay + event + LLM delta + HumanCondition 自動導出)
     memory.py             # 2層メモリ (ShortTerm + LongTerm)
     pipeline.py           # パイプライン制御 (リトライ / Temperature Decay / Best-of-N)
-    llm_client.py         # LLM API 抽象化 (Anthropic Claude 実装)
+    llm_client.py         # LLM API 抽象化 (Anthropic Claude / Google Gemini)
     prompt_loader.py      # プロンプトファイル読み込みユーティリティ
   main.py                 # CLI エントリポイント
   visualization.py        # 状態推移グラフ生成
