@@ -31,7 +31,8 @@ Thumbs.db
 
 # 個人ファイル
 advice.md
-.claude/
-CLAUDE.md
 reserch.md
 advice_agent.md
+
+# Claude Code ローカル設定
+.claude/settings.local.json
