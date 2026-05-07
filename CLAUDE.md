@@ -1,144 +1,133 @@
-# CLAUDE.md — CSDG (Cognitive-State Diary Generator)
+# CLAUDE.md — Claude Code 固有指示 (CSDG)
 
-## プロジェクト概要
+**プロジェクト共通コンテキストは @docs/agent-shared.md を参照。** このファイルは Claude Code 固有の運用ルールに限定する。
 
-体系的認知モデルに基づくAIキャラクター日記生成システム。
-Actor-Critic型の敵対的検証ループにより、7日間のブログ日記を生成する。
-
-- **リポジトリ:** https://github.com/mikotomiura/cognitive-State-Diary-generator
-- **言語:** Python 3.11+
-- **主要フレームワーク:** Pydantic, Anthropic API, Google Gemini API, matplotlib
-- **アーキテクチャ:** 3-Phase Pipeline (State Update → Content Generation → Critic Evaluation)
-
----
-
-## ドキュメント体系
-
-作業を開始する前に、必ず以下のドキュメントを確認すること。
-
-| ドキュメント | パス | 目的 |
-|---|---|---|
-| 機能設計書 | `docs/functional-design.md` | 機能要件・ユースケース・画面仕様 |
-| 技術設計書 | `docs/architecture.md` | システム構成・データフロー・技術選定 |
-| リポジトリ構造定義書 | `docs/repository-structure.md` | ディレクトリ構成・ファイル配置規約 |
-| 開発ガイドライン | `docs/development-guidelines.md` | コーディング規約・Git運用・テスト方針 |
-| ユビキタス言語定義 | `docs/glossary.md` | プロジェクト固有の用語定義 |
-| ERRE 設計文書 | `docs/erre-design.md` | ERRE フレームワークと CSDG の対応関係 |
-| MVP 実装ワークフロー | `docs/mvp-implementation-workflow.md` | フェーズ別の実装手順・プロンプト |
-
----
-
-## 開発の原則
-
-1. **設計書ファーストで実装する。** コードを書く前にドキュメントを読み、設計意図を理解する。
-2. **型安全性を最優先する。** Pydanticモデルによる厳密な型定義を遵守する。
-3. **テストなしのコミットは禁止。** 新機能・バグ修正には必ずテストを伴う。
-4. **プロンプトはコードに埋め込まない。** `prompts/` ディレクトリの外部Markdownファイルで管理する。
-5. **Self-Healingを前提とする。** LLM出力のパースエラーは必ず発生するものとしてフォールバックを実装する。
-
----
-
-## よく使うコマンド
-
-```bash
-uv sync                        # 依存関係のインストール
-pytest tests/ -v               # テストの実行
-mypy csdg/ --strict            # 型チェック
-ruff check csdg/               # リンター
-ruff format csdg/              # フォーマッター
-python -m csdg.main            # パイプラインの実行
-python -m csdg.main --day 4    # 特定のDayのみ実行
-```
-
----
-
-## コードベースの重要な規約
-
-`schemas.py` 変更手順・プロンプト変更手順・感情パラメータ範囲等の詳細は `docs/development-guidelines.md` を参照すること。
+公式 Skill 利用方針は @docs/external-skills.md を参照。
 
 ---
 
 ## .steering — 構造化作業ノート
 
-各作業セッションでは、`.steering/` フォルダに作業記録を残すこと。
-ディレクトリ構造は `[YYYYMMDD]-[タスク名]/` 単位で作成する。
+各作業セッションで `.steering/` に作業記録を残すこと。詳細は `.steering/README.md`。
 
 ### ディレクトリ構造
 
 ```
 .steering/
-└── [YYYYMMDD]-[タスク名]/
-    ├── requirement.md    # 今回の作業の実装内容・要件
-    ├── design.md         # 実装アプローチと変更内容
-    ├── tasklist.md       # 具体的な実装タスク（チェックリスト形式）
-    ├── blockers.md       # (オプション) ブロッカーの記録
-    └── decisions.md      # (オプション) 重要な決定事項の記録
+├── _template/                # タスク用テンプレート (5 ファイル)
+├── _setup-progress.md        # Claude Code 環境構築の進捗
+├── _verify-report-*.md       # /verify-setup の出力
+└── [YYYYMMDD]-[タスク名]/     # 実タスクの作業ノート
+    ├── requirement.md
+    ├── design.md
+    ├── tasklist.md
+    ├── blockers.md (任意)
+    └── decisions.md (任意)
 ```
 
-### 作業開始時のフロー
+### 作業フロー
 
-1. `.steering/[YYYYMMDD]-[タスク名]/` ディレクトリを作成する
-2. `requirement.md` に要件を記述する
-3. `design.md` に実装アプローチを記述する
-4. `tasklist.md` にタスクを分解する
-5. 実装を進めながら、各ファイルを随時更新する
-6. ブロッカーや重要な決定が発生した場合は `blockers.md` / `decisions.md` に記録する
+1. `/start-task` で `.steering/[YYYYMMDD]-[タスク名]/` 作成 + テンプレート展開
+2. `requirement.md` → `design.md` → `tasklist.md` の順に埋める
+3. 実装中、tasklist.md のチェックを進めながら作業
+4. ブロッカー / 重要決定 → `blockers.md` / `decisions.md` 追記
+5. `/finish-task` で最終化 + コミット
+
+---
+
+## Plan モードの使用基準
+
+複雑な変更 (3 ファイル以上 / アーキテクチャ影響) では Plan モードに入って `ExitPlanMode` で承認を取る。
+小修正 / 1 ファイル変更 / バグ修正は Plan モード不要 — 直接実装。
+
+---
+
+## モデル選択ルール
+
+サブエージェントの model フロントマター指定:
+- 実行系 (test-runner, build-executor): **haiku** (高速・軽量)
+- 情報収集系 (file-finder, dependency-checker, impact-analyzer, log-analyzer): **sonnet**
+- レビュー系 (code-reviewer, test-analyzer, security-checker): **opus** (品質重視)
+- オーケストレータ (cross-reviewer): **sonnet**
+
+---
+
+## コンテキスト管理
+
+- 大量の検索 / 探索が必要な時は `Agent` (subagent_type=Explore) でメインコンテキストを節約
+- ツール結果の重要情報は応答内に記録 (auto-compact 後も残るように)
+- 不要な `cat` / `ls` の繰り返しは避ける (Read / Grep / Glob を使う)
 
 ---
 
 ## サブエージェント
 
-`.claude/agents/` 配下のサブエージェント定義を参照すること。
-サブエージェントは詳細な作業を実行した後、結果を簡潔なレポートとして親エージェントに返す。
+`.claude/agents/` を参照。
 
 | カテゴリ | エージェント | 用途 |
 |---|---|---|
-| レビュー | `code-reviewer` | コードレビュー |
-| レビュー | `test-analyzer` | テスト結果の分析 |
-| レビュー | `security-checker` | セキュリティチェック |
-| 情報収集 | `impact-analyzer` | 変更の影響範囲調査 |
-| 情報収集 | `dependency-checker` | 依存関係の確認 |
-| 情報収集 | `file-finder` | 関連ファイルの検索 |
-| 実行 | `test-runner` | テストの実行 |
-| 実行 | `build-executor` | ビルドの実行 |
-| 実行 | `log-analyzer` | ログファイルの分析 |
+| レビュー | `code-reviewer` | コードレビュー (opus) |
+| レビュー | `test-analyzer` | テスト結果の分析 (opus) |
+| レビュー | `security-checker` | セキュリティチェック (opus) |
+| レビュー | `cross-reviewer` | Claude + Codex 並列レビュー (sonnet) |
+| 情報収集 | `impact-analyzer` | 変更影響範囲調査 |
+| 情報収集 | `dependency-checker` | 依存関係確認 |
+| 情報収集 | `file-finder` | 関連ファイル検索 |
+| 実行 | `test-runner` | テスト実行 |
+| 実行 | `build-executor` | ビルド実行 |
+| 実行 | `log-analyzer` | ログ分析 |
 
 ---
 
 ## スラッシュコマンド
 
-`.claude/commands/` 配下のコマンド定義を参照すること。
+`.claude/commands/` を参照。
 
 | コマンド | 用途 |
 |---|---|
 | `/start-task` | タスク開始・作業記録初期化 |
-| `/implement feat\|fix\|refactor` | 新機能追加 / バグ修正 / リファクタリング |
-| `/review-changes` | コミット前レビュー（動的 git 取得 + 並列実行） |
-| `/finish-task` | タスク完了処理（テスト・コミット） |
-| `/run-tests` | テスト実行・分析ワークフロー |
-| `/update-docs` | ドキュメント更新ワークフロー |
-| `/add-scenario` | シナリオ(DailyEvent)追加ワークフロー |
-| `/tune-prompt` | プロンプトチューニングワークフロー |
+| `/implement feat\|fix\|refactor` | 実装ワークフロー (3 タイプ統合) |
+| `/review-changes` | 通常レビュー (Claude のみ、軽量) |
+| `/cross-review` | 並列レビュー (Claude + Codex、重要 PR 向け) |
+| `/finish-task` | タスク完了処理 (テスト・コミット) |
+| `/run-tests` | テスト実行・分析 |
+| `/update-docs` | ドキュメント更新 |
+| `/add-scenario` | シナリオ (DailyEvent) 追加 |
+| `/tune-prompt` | プロンプトチューニング |
 
 ---
 
-## スキル
+## Skill
 
-`.claude/skills/` 配下のスキル定義を参照すること。
+`.claude/skills/` を参照。
 
-| スキル | 用途 |
+| Skill | 用途 |
 |---|---|
-| `python-standards` | Pythonコーディング規約・ベストプラクティス |
-| `pydantic-patterns` | Pydanticモデル設計パターン |
-| `prompt-engineering` | LLMプロンプト設計の原則 |
+| `python-standards` | Python コーディング規約 |
+| `pydantic-patterns` | Pydantic v2 モデル設計 |
+| `prompt-engineering` | LLM プロンプト設計の原則 |
 | `test-standards` | テスト設計・実装の基準 |
+| `codex-consult` | Codex を設計相談相手として呼ぶ |
+| `codex-review` | Codex で diff を独立レビュー |
+| `codex-rescue` | Codex に rescue 実装を委譲 |
+
+<!-- cross-ref-ok: Codex 委譲時のフロー説明として正当な参照 -->
+## Codex への委譲 (任意)
+
+自分の実装に独立した第二意見が欲しい時、または同じ問題で 3 回以上詰まった時は Codex CLI への委譲を検討する:
+- 軽量な設計相談: `codex-consult` Skill
+- diff の独立レビュー: `/cross-review` コマンド
+- rescue 実装: `codex-rescue` Skill (要ユーザー明示承認)
+
+詳細な運用ルール (sandbox / approval / モデル選択) は @AGENTS.md を参照。
+<!-- /cross-ref-ok -->
 
 ---
 
 ## 禁止事項
 
-- `schemas.py` のモデルを変更する際、既存のテストを壊すような破壊的変更を無断で行わないこと
-- プロンプトファイルにPythonコードを直接埋め込まないこと
-- `config.py` の感情感度係数 (`EMOTION_SENSITIVITY`) を根拠なく変更しないこと
-- キャラクター設定（ペルソナ）の禁則事項を無視した日記を生成しないこと
+- `schemas.py` の破壊的変更を無断で行わないこと
+- プロンプトファイルに Python コードを埋め込まないこと
 - `.steering/` の作業記録を省略しないこと
+- ハードコード値で `EMOTION_SENSITIVITY` を変更しないこと
+- ペルソナの禁則事項を無視した日記を生成しないこと

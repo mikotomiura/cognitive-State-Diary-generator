@@ -6,7 +6,7 @@ description: >
   テスト失敗の根本原因を特定し、カバレッジ目標との差分を分析し、
   テスト追加・修正の具体的な提案を含む分析レポートを親エージェントに返す。
 tools: Read, Grep, Glob, LS, Bash
-model: sonnet
+model: opus
 ---
 
 # テスト結果分析 サブエージェント

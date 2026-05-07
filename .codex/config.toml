@@ -1,0 +1,22 @@
+# Codex CLI 設定 — CSDG プロジェクト
+# このファイルは `codex exec` 起動時の既定値を提供する。
+# プロジェクト固有の sandbox / model / approval ポリシーを集約管理。
+
+# 既定モデル: gpt-5 系 (reasoning_effort は invocation ごとに上書き)
+model = "gpt-5"
+
+# Sandbox の既定: read-only (= ファイル読み取りのみ可能、ネットワーク不可)
+# rescue 用途で書き込み権限が必要な時は invocation 側で `--sandbox workspace-write` を指定
+sandbox_mode = "read-only"
+
+# Approval ポリシー: on-failure (= 失敗時のみ確認、通常は自動進行)
+approval_policy = "on-failure"
+
+# 推論の既定強度: medium
+# - low:    consult 用途 (設計の壁打ち、軽量)
+# - medium: review 用途 (diff レビュー、標準)
+# - high:   rescue 用途 (複雑な実装、慎重)
+model_reasoning_effort = "medium"
+
+# Git ガード: codex exec --skip-git-repo-check は使わない (本プロジェクトは git 管理下)
+# 必要時は invocation 側で個別指定

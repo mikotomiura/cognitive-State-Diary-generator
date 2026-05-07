@@ -6,7 +6,7 @@ description: >
   APIキーの露出、ログへの機密情報混入、プロンプトインジェクションリスク、
   依存パッケージの脆弱性を検査し、リスクレベル別のセキュリティレポートを親エージェントに返す。
 tools: Read, Grep, Glob, LS, Bash
-model: sonnet
+model: opus
 ---
 
 # セキュリティチェック サブエージェント
