@@ -36,3 +36,4 @@ advice_agent.md
 
 # Claude Code ローカル設定
 .claude/settings.local.json
+.claude/commands/commands_setup
