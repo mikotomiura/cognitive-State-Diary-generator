@@ -37,3 +37,7 @@ advice_agent.md
 # Claude Code ローカル設定
 .claude/settings.local.json
 .claude/commands/commands_setup
+
+# Codex Bridge runtime artifacts
+.codex/.budget.lock
+.steering/_token_log.last_key

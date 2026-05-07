@@ -1,0 +1,12 @@
+{
+  "daily_token_budget": 200000,
+  "per_invocation_max": 40000,
+  "diff_lines_threshold": 800,
+  "today": {
+    "date": "2026-05-07",
+    "tokens_used": 0,
+    "invocations": 0
+  },
+  "history": [],
+  "_comment": "daily_token_budget は input+output の合算上限。per_invocation_max は単一 codex exec で投入できる最大入力 token。diff_lines_threshold は /cross-review が変更行数で短絡判定するしきい値。tokens_used / invocations は token-report-stop.sh で更新される。"
+}
