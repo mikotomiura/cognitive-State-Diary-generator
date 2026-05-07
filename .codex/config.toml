@@ -2,8 +2,11 @@
 # このファイルは `codex exec` 起動時の既定値を提供する。
 # プロジェクト固有の sandbox / model / approval ポリシーを集約管理。
 
-# 既定モデル: gpt-5 系 (reasoning_effort は invocation ごとに上書き)
-model = "gpt-5"
+# 既定モデル: gpt-5.5 (reasoning_effort は invocation ごとに上書き)
+# 注: 当初 PR #14 で `gpt-5` を指定していたが、ChatGPT 認証 (Plus/Pro サブスク) では
+# `gpt-5` が拒否されるため `gpt-5.5` に変更 (2026-05-07, codex 0.125 で動作確認)。
+# OPENAI_API_KEY 利用時も gpt-5.5 で動作する。
+model = "gpt-5.5"
 
 # Sandbox の既定: read-only (= ファイル読み取りのみ可能、ネットワーク不可)
 # rescue 用途で書き込み権限が必要な時は invocation 側で `--sandbox workspace-write` を指定

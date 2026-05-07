@@ -1,7 +1,7 @@
 ---
 name: codex-review
 description: >
-  Codex CLI (gpt-5) を独立したコードレビュアーとして呼び出し、git diff を独立評価する Skill。
+  Codex CLI (gpt-5.5) を独立したコードレビュアーとして呼び出し、git diff を独立評価する Skill。
   以下の状況で必須参照: 重要 PR のマージ前、Claude 自身が書いた diff へのバイアス排除が必要な時、
   /cross-review コマンドの内部から並列レビュアーとして起動される時。
   read-only sandbox + medium reasoning_effort で diff を評価し、CRITICAL/HIGH/MEDIUM/LOW で報告する。

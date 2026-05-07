@@ -1,7 +1,7 @@
 ---
 name: codex-rescue
 description: >
-  Codex CLI (gpt-5) を rescue 実装担当として呼び出すための Skill。Claude 自身が複数回試行しても
+  Codex CLI (gpt-5.5) を rescue 実装担当として呼び出すための Skill。Claude 自身が複数回試行しても
   解決できなかった実装課題を、git worktree 隔離環境で Codex に委譲する。
   以下の状況で必須参照: Claude が同じバグで 3 回以上ハマっている時、視点を変えるしかない時、
   ただし依頼前にユーザーから明示承認を得ること。workspace-write + 隔離 worktree のため、
@@ -36,7 +36,7 @@ git worktree add .worktree-codex-rescue HEAD
 # 2. Codex に rescue を依頼 (workspace-write、high reasoning)
 cd .worktree-codex-rescue && codex exec \
   --sandbox workspace-write \
-  -m gpt-5 \
+  -m gpt-5.5 \
   -c model_reasoning_effort=high \
   "[詳細な依頼文 + 試した内容 + 期待する出力]"
 

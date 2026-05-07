@@ -69,6 +69,6 @@ $FILTERED"
 
 exec codex exec \
   --sandbox read-only \
-  -m gpt-5 \
+  -m gpt-5.5 \
   -c model_reasoning_effort=medium \
   "$INPUT_FOR_CODEX"
