@@ -1,7 +1,7 @@
 ---
 name: cross-reviewer
 description: >
-  code-reviewer (Claude / Opus) と codex-review (Codex / gpt-5) を並列起動し、
+  code-reviewer (Claude / Opus) と codex-review (Codex / gpt-5.5) を並列起動し、
   両者の指摘を重複排除した統合レビューレポートを返すオーケストレータ。
   親エージェントが /cross-review コマンドから起動する。重要 PR のマージ前、
   Claude 自身の自己バイアスを排除したい時に使う。
@@ -122,5 +122,5 @@ fi
 ## 関連
 
 - `code-reviewer` (sub-agent): Claude / Opus による単独レビュー
-- `codex-review` (Skill): Codex / gpt-5 による独立レビュー
+- `codex-review` (Skill): Codex / gpt-5.5 による独立レビュー
 - `/cross-review` (command): ユーザー向けのトリガー

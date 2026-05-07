@@ -1212,6 +1212,10 @@ class PipelineRunner:
             revision_parts: list[str] = []
             if critic_score.revision_instruction:
                 revision_parts.append(critic_score.revision_instruction)
+            elif critic_score.reject_reason:
+                # soft_fail で revision_instruction が未populate のケースを救う
+                # (情報損失バグ修正: score>=3 でも Critic LLM の reject_reason をフィードバック)
+                revision_parts.append(critic_score.reject_reason)
             if structural_violations:
                 violation_text = "\n".join(f"- {v}" for v in structural_violations)
                 revision_parts.append(f"構造的制約違反:\n{violation_text}")

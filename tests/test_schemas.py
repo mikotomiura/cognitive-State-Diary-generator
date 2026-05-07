@@ -322,6 +322,104 @@ class TestCriticScoreRejectValidation:
             )
 
 
+class TestCriticScoreVerdict:
+    """CriticScore.verdict の自動導出テスト (CRITICAL-1)。
+
+    .steering/20260507-critic-verdict/ 参照。
+    score + reject_reason から verdict を導出し、Critic LLM の信号損失を防ぐ。
+    """
+
+    def test_default_verdict_is_pass(self) -> None:
+        """全スコア合格 + reject_reason 無しのデフォルト構築は verdict='pass'。"""
+        score = _make_critic_score(
+            temporal_consistency=4,
+            emotional_plausibility=4,
+            persona_deviation=4,
+        )
+        assert score.verdict == "pass"
+
+    def test_verdict_pass_at_min_threshold(self) -> None:
+        """全スコア=3 のぎりぎり合格は verdict='pass'。"""
+        score = _make_critic_score(
+            temporal_consistency=3,
+            emotional_plausibility=3,
+            persona_deviation=3,
+        )
+        assert score.verdict == "pass"
+
+    def test_verdict_soft_fail_when_reject_reason_set_with_passing_scores(self) -> None:
+        """全スコア >= 3 でも reject_reason が非空なら verdict='soft_fail'。
+
+        output/generation_log.json Day 7 attempt 0 (T=3 E=4 P=3 + reject_reason)
+        の実バグケースを直接表現する回帰テスト。
+        """
+        score = _make_critic_score(
+            temporal_consistency=3,
+            emotional_plausibility=4,
+            persona_deviation=3,
+            reject_reason="3未満ではないがいくつかの問題があります",
+        )
+        assert score.verdict == "soft_fail"
+
+    def test_verdict_hard_fail_when_score_below_3(self) -> None:
+        """1つでも score<3 なら verdict='hard_fail'。"""
+        score = _make_critic_score(
+            temporal_consistency=2,
+            emotional_plausibility=4,
+            persona_deviation=4,
+            reject_reason="時間整合性が低い",
+            revision_instruction="過去との関係を追記してください",
+        )
+        assert score.verdict == "hard_fail"
+
+    def test_verdict_overrides_user_supplied_value(self) -> None:
+        """LLM が直接 verdict を出力しても validator が score + reject_reason から再導出する。"""
+        score = _make_critic_score(
+            temporal_consistency=4,
+            emotional_plausibility=4,
+            persona_deviation=4,
+            verdict="hard_fail",  # 嘘の verdict を入れても上書きされる
+        )
+        assert score.verdict == "pass"
+
+    def test_verdict_invalid_value_raises(self) -> None:
+        """Literal 外の verdict 値は ValidationError。"""
+        with pytest.raises(ValidationError):
+            _make_critic_score(
+                temporal_consistency=4,
+                emotional_plausibility=4,
+                persona_deviation=4,
+                verdict="unknown_state",
+            )
+
+    def test_verdict_roundtrip_preserves_value(self) -> None:
+        """JSON 往復後も verdict が再導出される (default='pass' で deserialize → 再導出)。"""
+        original = _make_critic_score(
+            temporal_consistency=3,
+            emotional_plausibility=4,
+            persona_deviation=3,
+            reject_reason="soft_fail ケース",
+        )
+        restored = CriticScore.model_validate_json(original.model_dump_json())
+        assert restored.verdict == "soft_fail"
+
+    def test_check_reject_fields_runs_before_derive_verdict(self) -> None:
+        """validator 宣言順 (check_reject_fields 先 / derive_verdict 後) の明示検証。
+
+        score<3 + reject_reason 欠落の場合、check_reject_fields が先に走って
+        ValidationError を出すため、derive_verdict は到達しない。
+        この順序が逆転すると hard_fail が確定した状態で reject_reason 必須チェックが
+        走ってしまい、エラー文脈が変わるため意味がある。
+        """
+        with pytest.raises(ValidationError, match="reject_reason"):
+            _make_critic_score(
+                temporal_consistency=2,
+                emotional_plausibility=4,
+                persona_deviation=4,
+                # reject_reason / revision_instruction を意図的に省略
+            )
+
+
 # ===========================================================================
 # JSON 往復変換 (Roundtrip Serialization)
 # ===========================================================================
