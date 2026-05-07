@@ -7,7 +7,7 @@ description: >
   型安全性・エラーハンドリング・命名規則・ドキュメント整備を体系的に検査し、
   問題の重大度を分類した簡潔なレビューレポートを親エージェントに返す。
 tools: Read, Grep, Glob, LS
-model: sonnet
+model: opus
 ---
 
 # コードレビュー サブエージェント
