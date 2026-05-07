@@ -9,6 +9,7 @@ glossary.md §2 の仕様に準拠する。
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -160,9 +161,14 @@ class LLMDeltaResponse(BaseModel):
 class CriticScore(BaseModel):
     """評価器スコア。
 
-    Criticが出力する評価結果。3つのスコア(各1〜5)で構成され、
-    全スコアが3以上で Pass、1つでも3未満があれば Reject となる。
-    Reject時は reject_reason と revision_instruction が必須。
+    Critic が出力する評価結果。3つのスコア (各1〜5) と派生フィールド ``verdict`` で構成される。
+
+    判定 (``verdict``) は ``model_validator`` が score と reject_reason から自動導出する:
+      - ``pass``: 全スコア >= 3 かつ reject_reason 無し
+      - ``soft_fail``: 全スコア >= 3 だが reject_reason 非空 (Critic LLM が問題を検出)
+      - ``hard_fail``: いずれかのスコアが 3 未満
+
+    Reject 時 (hard_fail 相当) は reject_reason と revision_instruction が必須。
     """
 
     temporal_consistency: int = Field(description="時間的整合性スコア (1〜5)")
@@ -171,6 +177,10 @@ class CriticScore(BaseModel):
     hook_strength: float = Field(default=0.0, ge=0.0, le=1.0, description="フック強度 (0.0〜1.0, 診断専用)")
     reject_reason: str | None = Field(default=None, description="リジェクト時の理由")
     revision_instruction: str | None = Field(default=None, description="修正指示")
+    verdict: Literal["pass", "soft_fail", "hard_fail"] = Field(
+        default="pass",
+        description="判定 (validator が score と reject_reason から自動導出)",
+    )
 
     @field_validator("temporal_consistency", "emotional_plausibility", "persona_deviation")
     @classmethod
@@ -190,6 +200,26 @@ class CriticScore(BaseModel):
             raise ValueError("Reject時はreject_reasonが必須")
         if is_reject and not self.revision_instruction:
             raise ValueError("Reject時はrevision_instructionが必須")
+        return self
+
+    @model_validator(mode="after")
+    def derive_verdict(self) -> CriticScore:
+        """verdict を score と reject_reason から再導出する (LLM 直出し値より優先)。
+
+        check_reject_fields の後に実行され (Pydantic v2 の宣言順保証)、
+        正規化された inputs に対して verdict を確定する。
+        将来 frozen=True を付与しても安全なよう object.__setattr__ で書き込む。
+        """
+        is_hard_fail = any(
+            getattr(self, f) < 3 for f in ("temporal_consistency", "emotional_plausibility", "persona_deviation")
+        )
+        if is_hard_fail:
+            new_verdict: Literal["pass", "soft_fail", "hard_fail"] = "hard_fail"
+        elif self.reject_reason:
+            new_verdict = "soft_fail"
+        else:
+            new_verdict = "pass"
+        object.__setattr__(self, "verdict", new_verdict)
         return self
 
 

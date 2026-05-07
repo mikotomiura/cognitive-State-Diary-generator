@@ -408,6 +408,102 @@ class TestBestOfN:
 
 
 # ====================================================================
+# Soft-Fail リトライ (CRITICAL-1): score>=3 + reject_reason -> retry
+# ====================================================================
+
+
+class TestSoftFailRetry:
+    """soft_fail (verdict='soft_fail') のリトライ動作テスト (CRITICAL-1)。
+
+    .steering/20260507-critic-verdict/ 参照。
+    score>=3 でも Critic LLM が reject_reason を populate した場合、
+    旧来は数値のみで Pass 扱いだったが、verdict 主導により Reject (retry) となる。
+    output/generation_log.json Day 7 attempt 0 (T=3 E=4 P=3 + reject_reason)
+    の実バグの回帰テスト。
+    """
+
+    @pytest.mark.asyncio()
+    async def test_soft_fail_triggers_retry(
+        self,
+        runner: PipelineRunner,
+        mock_actor: Actor,
+        mock_critic: Critic,
+        state: CharacterState,
+    ) -> None:
+        """soft_fail を返した attempt 0 が Pass 扱いされず、attempt 1 が走る。"""
+        assert isinstance(mock_actor, AsyncMock)
+        assert isinstance(mock_critic, AsyncMock)
+
+        updated_state = state.model_copy(update={"stress": 0.0})
+        mock_actor.update_state.return_value = (updated_state, "テストreason")
+        mock_actor.generate_diary.return_value = "今日の日記です。" * 10
+
+        soft_fail = CriticScore(
+            temporal_consistency=3,
+            emotional_plausibility=4,
+            persona_deviation=3,
+            reject_reason="3未満ではないが問題あり (Day 7 attempt 0 相当)",
+        )
+        assert soft_fail.verdict == "soft_fail"
+
+        pass_score = _make_pass_score()
+        mock_critic.evaluate_full.side_effect = [
+            _wrap_as_result(soft_fail),
+            _wrap_as_result(pass_score),
+        ]
+
+        event = _make_event(1)
+        record = await runner.run_single_day(event, state, day=1)
+
+        assert record.retry_count == 1
+        assert len(record.critic_scores) == 2
+        assert record.critic_scores[0].verdict == "soft_fail"
+        assert judge(record.critic_scores[-1])
+
+    @pytest.mark.asyncio()
+    async def test_soft_fail_reject_reason_flows_to_actor_feedback(
+        self,
+        runner: PipelineRunner,
+        mock_actor: Actor,
+        mock_critic: Critic,
+        state: CharacterState,
+    ) -> None:
+        """soft_fail 時、revision_instruction が無くても reject_reason がフィードバックに乗る。"""
+        assert isinstance(mock_actor, AsyncMock)
+        assert isinstance(mock_critic, AsyncMock)
+
+        updated_state = state.model_copy(update={"stress": 0.0})
+        mock_actor.update_state.return_value = (updated_state, "テストreason")
+        mock_actor.generate_diary.return_value = "今日の日記です。" * 10
+
+        soft_fail = CriticScore(
+            temporal_consistency=3,
+            emotional_plausibility=4,
+            persona_deviation=3,
+            reject_reason="UNIQUE_SOFT_FAIL_MARKER_xyz789",
+            # revision_instruction は intentionally None
+        )
+        assert soft_fail.revision_instruction is None
+        assert soft_fail.verdict == "soft_fail"
+
+        pass_score = _make_pass_score()
+        mock_critic.evaluate_full.side_effect = [
+            _wrap_as_result(soft_fail),
+            _wrap_as_result(pass_score),
+        ]
+
+        event = _make_event(1)
+        await runner.run_single_day(event, state, day=1)
+
+        # 2 回目の generate_diary 呼び出しの revision_instruction kwarg に reject_reason が乗っているか
+        assert mock_actor.generate_diary.call_count == 2
+        retry_call = mock_actor.generate_diary.call_args_list[1]
+        retry_revision = retry_call.kwargs.get("revision_instruction")
+        assert retry_revision is not None
+        assert "UNIQUE_SOFT_FAIL_MARKER_xyz789" in retry_revision
+
+
+# ====================================================================
 # Phase 1 フォールバック: ValidationError 3回 → 前日状態コピー
 # ====================================================================
 
