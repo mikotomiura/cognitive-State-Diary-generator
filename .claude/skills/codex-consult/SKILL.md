@@ -1,7 +1,7 @@
 ---
 name: codex-consult
 description: >
-  Codex CLI (gpt-5) を独立した設計相談相手として呼び出すための Skill。
+  Codex CLI (gpt-5.5) を独立した設計相談相手として呼び出すための Skill。
   以下の状況で必須参照: 設計判断に迷った時、Claude 単独では視野が偏る恐れがある時、
   アーキテクチャの選択肢を比較したい時、複雑なバグの原因仮説を独立に検証したい時。
   read-only sandbox + low reasoning_effort で軽量に運用する。
@@ -22,7 +22,7 @@ allowed-tools: Bash(scripts/run-codex-consult.sh:*), Read
 
 ## 入力の制約 (重要)
 
-Codex は **OpenAI の gpt-5 にプロンプトを送信する外部 LLM** であり、本プロジェクトの全ファイルを送るのは情報漏洩リスクがある。**送信内容は公開可能な最小抜粋に限定する**:
+Codex は **OpenAI の gpt-5.5 にプロンプトを送信する外部 LLM** であり、本プロジェクトの全ファイルを送るのは情報漏洩リスクがある。**送信内容は公開可能な最小抜粋に限定する**:
 
 - ✅ 抽象的な設計の質問 ("Pydantic で discriminated union を扱うとき、validator のチェーン順序はどうあるべきか")
 - ✅ 公開可能なコードスニペット (10-30 行程度)

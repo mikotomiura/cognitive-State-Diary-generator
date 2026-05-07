@@ -363,12 +363,21 @@ def compute_deviation(prev: CharacterState, curr: CharacterState, expected: dict
 **判定ロジック:**
 ```python
 def judge(score: CriticScore) -> bool:
-    """全スコアが3以上で Pass。"""
-    return all(
-        getattr(score, field) >= 3
-        for field in ["temporal_consistency", "emotional_plausibility", "persona_deviation"]
-    )
+    """verdict が pass のときのみ True。soft_fail / hard_fail はリトライ対象。"""
+    return score.verdict == "pass"
 ```
+
+`CriticScore.verdict` は `model_validator` が score と reject_reason から自動導出する `Literal["pass", "soft_fail", "hard_fail"]` 派生フィールド:
+
+| verdict | 条件 | リトライ |
+|---|---|---|
+| `pass` | 全スコア >= 3 かつ reject_reason 無し | なし (採用) |
+| `soft_fail` | 全スコア >= 3 だが Critic LLM が reject_reason を populate | あり (reject_reason をフィードバック) |
+| `hard_fail` | いずれかのスコアが 3 未満 (reject_reason / revision_instruction 必須) | あり (revision_instruction をフィードバック) |
+
+`soft_fail` は「数値上は合格しているが Critic が言語的に問題を検出した」ケースを捕捉する判定で、改善信号 (reject_reason) の情報損失を防ぐ目的で導入された (`.steering/20260507-critic-verdict/`)。LLM が直接 verdict を出力しても validator が score + reject_reason から再導出するため、真実源は派生フィールドではなく入力スコアと reject_reason である。
+
+`soft_fail` ケースでは Layer 3 (LLMJudge) が `revision_instruction` を populate しない可能性がある (existing validator は score<3 のみ必須化)。この場合 `pipeline.py` のリトライループで `reject_reason` を Generator フィードバックにフォールバックさせるため、ログ上 `revision_instruction=None` の soft_fail レコードが残ることがある。
 
 **3層 Critic パイプライン (`CriticPipeline`):**
 

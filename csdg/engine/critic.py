@@ -113,7 +113,11 @@ def compute_deviation(
 
 
 def judge(score: CriticScore) -> bool:
-    """全スコアが 3 以上で True (Pass)。1つでも 3 未満で False (Reject)。
+    """verdict が pass のときのみ True (Pass)。soft_fail / hard_fail はリトライ対象。
+
+    verdict は CriticScore の model_validator が score と reject_reason から
+    自動導出するため、Critic LLM が score>=3 で reject_reason を populate した
+    soft_fail ケース (情報損失バグ) も Reject として検出される。
 
     Args:
         score: Critic が出力した評価スコア。
@@ -121,7 +125,7 @@ def judge(score: CriticScore) -> bool:
     Returns:
         Pass なら True、Reject なら False。
     """
-    return all(getattr(score, field) >= 3 for field in _SCORE_FIELDS)
+    return score.verdict == "pass"
 
 
 # ---------------------------------------------------------------------------

@@ -12,15 +12,17 @@
 
 | 用途 | model | reasoning_effort | wrapper |
 |---|---|---|---|
-| 設計相談 (consult) | gpt-5 | low | `scripts/run-codex-consult.sh` |
-| diff レビュー (review) | gpt-5 | medium | `scripts/run-codex-review.sh` |
-| rescue 実装 | gpt-5 | high | (manual; worktree 隔離) |
+| 設計相談 (consult) | gpt-5.5 | low | `scripts/run-codex-consult.sh` |
+| diff レビュー (review) | gpt-5.5 | medium | `scripts/run-codex-review.sh` |
+| rescue 実装 | gpt-5.5 | high | (manual; worktree 隔離) |
 
 直接 `codex exec` を呼ばず、必ず wrapper 経由で実行する。wrapper には機密フィルタ (`scripts/secrets-filter.sh`) と予算チェックが組み込まれている。
 
+モデル選択の根拠: ChatGPT 認証 (Plus/Pro サブスク) では `gpt-5` が `400 / not supported when using Codex with a ChatGPT account` で拒否されるため、両認証方式で動作する `gpt-5.5` を採用 (2026-05-07, codex 0.125 で動作確認)。Codex の利用可能モデルが将来変動した場合は `.codex/config.toml` の `model` と本表 + wrapper の `-m` を一括更新すること。
+
 ## 入力データの制約
 
-外部 LLM (gpt-5) に送るため、以下は **絶対に送信しない**:
+外部 LLM (gpt-5.5) に送るため、以下は **絶対に送信しない**:
 - API キー / 環境変数 / `.env` の内容
 - ユーザーデータ / キャラクターペルソナ詳細
 - proprietary 拡張子のファイル (`.pdf` / `.docx` / `.xlsx` / `.pptx`) — 詳細は @docs/external-skills.md
@@ -46,7 +48,7 @@
 Claude が同じ問題で 3 回以上ハマった時のみ rescue を検討する:
 1. ユーザーに rescue 委譲の明示承認を取る (試した内容 + 期待成果物の説明)
 2. `git worktree add .worktree-codex-rescue HEAD` で隔離
-3. `--sandbox workspace-write -m gpt-5 -c model_reasoning_effort=high` で実行
+3. `--sandbox workspace-write -m gpt-5.5 -c model_reasoning_effort=high` で実行
 4. 結果検証 (テスト / mypy / ruff) → cherry-pick or 破棄
 5. 完了後 `git worktree remove .worktree-codex-rescue --force`
 

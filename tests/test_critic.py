@@ -215,6 +215,21 @@ class TestJudge:
         )
         assert judge(score_fail) is False
 
+    def test_judge_rejects_soft_fail(self) -> None:
+        """soft_fail (全スコア>=3 + reject_reason 非空) は Reject 扱い。
+
+        CRITICAL-1 回帰テスト: output/generation_log.json Day 7 attempt 0 相当。
+        verdict 主導の判定により、改善信号 (reject_reason) を捨てずにリトライへ繋ぐ。
+        """
+        score = CriticScore(
+            temporal_consistency=3,
+            emotional_plausibility=4,
+            persona_deviation=3,
+            reject_reason="3未満ではないが問題あり",
+        )
+        assert score.verdict == "soft_fail"
+        assert judge(score) is False
+
 
 # ====================================================================
 # Layer 1: RuleBasedValidator のテスト
