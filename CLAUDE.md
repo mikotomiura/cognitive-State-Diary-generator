@@ -45,8 +45,8 @@
 ## モデル選択ルール
 
 サブエージェントの model フロントマター指定:
-- 実行系 (test-runner, build-executor): **haiku** (高速・軽量)
-- 情報収集系 (file-finder, dependency-checker, impact-analyzer, log-analyzer): **sonnet**
+- 軽量系 (test-runner, build-executor, file-finder): **haiku** (高速・軽量、Glob/Grep 中心)
+- 情報収集系 (dependency-checker, impact-analyzer, log-analyzer): **sonnet** (構造解析・推論を伴う)
 - レビュー系 (code-reviewer, test-analyzer, security-checker): **opus** (品質重視)
 - オーケストレータ (cross-reviewer): **sonnet**
 
@@ -87,8 +87,10 @@
 |---|---|
 | `/start-task` | タスク開始・作業記録初期化 |
 | `/implement feat\|fix\|refactor` | 実装ワークフロー (3 タイプ統合) |
+| `/reimagine` | プラン段階で初回案を破棄し B 案と比較 (アンカリング排除) |
 | `/review-changes` | 通常レビュー (Claude のみ、軽量) |
 | `/cross-review` | 並列レビュー (Claude + Codex、重要 PR 向け) |
+| `/smart-compact` | handoff.md 生成 + /compact / /clear 推奨 (長時間セッション向け) |
 | `/finish-task` | タスク完了処理 (テスト・コミット) |
 | `/run-tests` | テスト実行・分析 |
 | `/update-docs` | ドキュメント更新 |
