@@ -38,4 +38,4 @@
 
 - [x] requirement.md / design.md は実装方針変更後の更新不要 (本質要件は不変、実装は 1 文字置換に簡略化)
 - [x] コミットメッセージ準備 (`fix(codex): wrapper のモデル指定を gpt-5.5 に変更`)
-- [ ] `/finish-task` でコミット実行
+- [x] `/finish-task` でコミット実行 (c7d15fb)
