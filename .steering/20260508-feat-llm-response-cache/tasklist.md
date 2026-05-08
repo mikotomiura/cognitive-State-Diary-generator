@@ -64,5 +64,5 @@
 - [x] design-v1-claude.md 保存 (アーカイブ)
 - [x] design-v2-codex.md 保存 (アーカイブ)
 - [x] decisions.md 作成 (D-01 reimagine / D-02 v3 マージ / D-03 schemas 非変更)
-- [ ] コミットメッセージ準備
-- [ ] `/finish-task` 実行
+- [x] コミットメッセージ準備 (Conventional Commits, `feat(cache):` で commit a19838d 作成)
+- [x] `/finish-task` 実行
