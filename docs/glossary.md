@@ -318,6 +318,14 @@ Day 5でとこみに「表現者」としての自覚を促す。
 ### 状態推移グラフ (State Trajectory)
 `output/state_trajectory.png` として保存される、7日間の `stress` / `motivation` / `fatigue` の推移およびCriticScoreの変動グラフ。
 
+### LLM レスポンスキャッシュ (LLM Response Cache)
+F-09 で定義される、`LLMClient` 前段の SQLite ベース KV キャッシュ。
+キーは `(provider, model, system_prompt, user_prompt, temperature, max_tokens, response_schema_hash)` の正規化 SHA-256。
+ストアは `~/.cache/csdg/llm/cache.sqlite` に置かれ、`--no-cache` で bypass 可能。
+プロンプトチューニングサイクルにおいて、編集していないプロンプトの LLM 呼び出しを省略し、
+1 サイクル時間を Phase 1 / Phase 3 の比率分（実測 57% を除く ≒ 約半分）短縮する目的で導入された。
+TTL は持たず、手動削除で運用する (`rm -rf ~/.cache/csdg/llm/`)。
+
 ---
 
 ## 9. 開発プロセス用語

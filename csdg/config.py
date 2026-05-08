@@ -101,6 +101,12 @@ class CSDGConfig(BaseSettings):
     # 出力
     output_dir: str = "output"
 
+    # LLM レスポンスキャッシュ (F-09)
+    # ``cache_dir`` は ``csdg.engine.cache._DEFAULT_CACHE_DIR`` と同期させる。
+    # 変更時は両方を同時に更新するか、循環 import を避けるため文字列リテラルを保持する。
+    cache_enabled: bool = True
+    cache_dir: str = "~/.cache/csdg/llm"
+
     @property
     def llm_api_key(self) -> str:
         """現在のプロバイダーに応じた API キーを返す。"""

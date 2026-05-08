@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from csdg.config import CSDGConfig
 from csdg.engine.actor import Actor
+from csdg.engine.cache import CachingLLMClient, ResponseCache
 from csdg.engine.critic import Critic
 from csdg.engine.llm_client import AnthropicClient, GeminiClient, LLMClient
 from csdg.engine.pipeline import PipelineRunner
@@ -62,6 +63,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true", help="詳細ログを表示する")
     parser.add_argument("--skip-visualization", action="store_true", help="グラフ生成をスキップする")
     parser.add_argument("--dry-run", action="store_true", help="API 呼び出しなしの構成確認")
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="LLM レスポンスキャッシュを bypass する (F-09)",
+    )
     return parser.parse_args(argv)
 
 
@@ -201,6 +207,26 @@ async def run_pipeline(args: argparse.Namespace) -> int:
             base_url=config.anthropic_base_url,
         )
         logger.info("LLM provider: Anthropic (%s)", config.llm_model)
+
+    # LLM レスポンスキャッシュ (F-09): --no-cache または config.cache_enabled=False で無効化
+    # Gemini fallback model が設定されている場合は、実際に応答したモデルがキーに反映できない
+    # 不整合 (cross-review H-01) を避けるため自動で無効化する
+    gemini_fallback_active = config.llm_provider == "gemini" and bool(config.gemini_fallback_models.strip())
+    if args.no_cache:
+        logger.info("[cache] disabled (--no-cache)")
+    elif not config.cache_enabled:
+        logger.info("[cache] disabled (config.cache_enabled=False)")
+    elif gemini_fallback_active:
+        logger.warning(
+            "[cache] disabled (Gemini fallback model 設定中 — primary key で fallback 結果を"
+            "保存する不整合を避けるため自動無効化)"
+        )
+    else:
+        cache_dir = Path(config.cache_dir).expanduser()
+        cache = ResponseCache(cache_dir / "cache.sqlite")
+        client = CachingLLMClient(client, cache, provider=config.llm_provider, model=config.llm_model)
+        logger.info("[cache] enabled at %s", cache_dir / "cache.sqlite")
+
     actor = Actor(client, config)
     critic = Critic(client, config)
     runner = PipelineRunner(config, actor, critic, llm_client=client)
