@@ -39,4 +39,4 @@
 - [x] `/cross-review` 実施 — Codex は wrapper リグレッションで起動不可、Claude 単独レビュー fallback。Claude code-reviewer 7 件指摘のうち C-01 / W-01 / C-02 mitigation を反映 (3 件)
 - [x] cross-review フィードバック反映後の再検証: 531 tests / mypy strict / ruff check すべて Green
 - [x] コミットメッセージ準備 (`fix(critic): verdict フィールド導入で reject_reason 信号矛盾を解消`)
-- [ ] `/finish-task` でコミット実行
+- [x] `/finish-task` でコミット実行 (d968b07)

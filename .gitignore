@@ -3,6 +3,8 @@
 
 # Output
 output/
+output_archive_*/
+output_experiment/
 
 # Python
 __pycache__/
