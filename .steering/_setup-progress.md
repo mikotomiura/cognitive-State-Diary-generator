@@ -24,14 +24,26 @@
   - ローカル環境: codex-cli 0.125.0 (`/opt/homebrew/bin/codex`)
 - [x] **Phase 6: agents** — 9/9 基本エージェント + cross-reviewer (Phase 5 連動)
   - 完了日時: 2026-03-25 (旧構築) + 2026-05-07 (cross-reviewer 追加 + レビュー系 opus 昇格)
-- [x] **Phase 7: commands** — 主要コマンド + /cross-review (Phase 5 連動)
-  - 完了日時: 2026-03-25 (旧構築) + 2026-05-07 (/cross-review 追加)
-  - 注: `/add-feature`, `/fix-bug`, `/refactor` は `/implement` に統合済 (c142b74)。`/smart-compact` `/reimagine` は LOW 項目として未着手。
+- [x] **Phase 7: commands** — 主要コマンド + /cross-review (Phase 5 連動) + /reimagine + /smart-compact
+  - 完了日時: 2026-03-25 (旧構築) + 2026-05-07 (/cross-review 追加) + 2026-05-08 (/reimagine, /smart-compact 追加)
+  - 注: `/add-feature`, `/fix-bug`, `/refactor` は `/implement` に統合済 (c142b74)。`/reimagine` (アンカリング排除のプラン再生成)、`/smart-compact` (handoff.md 生成型コンテキスト退避) を 2026-05-08 に新設し基本 8 コマンド体制を確立。
 - [x] **Phase 8: hooks** — 3 層構成 + Codex 第 4 層
   - 完了日時: 2026-04-09 (旧 2 hook) + 2026-05-07 (3 層 + Codex hook 追加 + Stop を type:command 化)
 - [x] **Phase 9: verify-setup** — 整合性検証
-  - 完了日時: 2026-05-07
-  - 検証結果: 本ファイル更新後に再実行予定
+  - 完了日時: 2026-05-08 12:11 JST (再実行)
+  - 検証結果 (検証時点): ⚠️ WARNINGS (CRITICAL=0, HIGH=0, MEDIUM=0, LOW=5)
+  - Phase 5 状態: 完了
+  - Phase 2 状態: skipped (公式 plugin 未導入)
+  - Codex 疎通: ✅ PASS (gpt-5.5, 13,124 tokens)
+  - AGENTS↔CLAUDE 同期: ✅ leakage 0
+  - ライセンス整合: ✅ proprietary 4 拡張子完全カバー
+  - レポート: `.steering/_verify-report-20260508.md`
+  - **検証後の修正 (2026-05-08 12:30 JST)**:
+    - LOW#1 解消: `.claude/settings.json` 新規作成、hooks ブロックを `settings.local.json` から分離 (チーム共有対応)
+    - LOW#2 解消: CLAUDE.md のモデル区分を再構成し file-finder を haiku 区分 (軽量系) に整合
+    - LOW#4 解消: `/reimagine` + `/smart-compact` 実装、CLAUDE.md コマンド表へ追加
+    - 残 LOW: #3 (codex skills 補足ファイル不足、設計判断として現状維持) / #5 (budget date 自動ロールオーバー待ち)
+    - 解消後の判定: ✅ HEALTHY (実質的な健全性)
 
 ## ライセンス同意ログ
 
